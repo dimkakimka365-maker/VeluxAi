@@ -1,0 +1,6 @@
+{
+  "name": "VeloxAi",
+  "description": "ChatGPT ga o'xshash, barcha savollaringizga tezkor va aqlli javob beruvchi sun'iy intellekt hamrohingiz.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
