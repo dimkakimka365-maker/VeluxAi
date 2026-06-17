@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Menu, Bot, Sparkles, MessageSquare, Plus } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import ChatWindow from "./components/ChatWindow";
+import PremiumModal from "./components/PremiumModal";
 import { ChatSession, Message } from "./types";
 import { PRESETS } from "./data/presets";
 // @ts-ignore
@@ -13,27 +14,56 @@ export default function App() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [secondsLeft, setSecondsLeft] = useState<number>(18000); // 5 hours default (5 * 3600)
+  const [sidebarOpen, setSidebarOpen] = useState(true); // Default open for a premium PC/laptop feel
 
-  // Initialize and check the daily limit of 5 hours
+  // Auto close sidebar on smaller mobile screens initially
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 768) {
+        setSidebarOpen(false);
+      } else {
+        setSidebarOpen(true);
+      }
+    };
+    handleResize(); // trigger on mount
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+  const [error, setError] = useState<string | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState<number>(10800); // 3 hours default (3 * 3600)
+  const [isPremium, setIsPremium] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("veloxai_is_premium") === "true";
+    } catch (_) {
+      return false;
+    }
+  });
+  const [premiumModalOpen, setPremiumModalOpen] = useState(false);
+
+  const handleActivatePremium = () => {
+    try {
+      localStorage.setItem("veloxai_is_premium", "true");
+    } catch (_) {}
+    setIsPremium(true);
+  };
+
+  // Initialize and check the daily limit of 3 hours
   useEffect(() => {
     const LIMIT_KEY_SEC = "veloxai_daily_limit_seconds";
     const LIMIT_KEY_DATE = "veloxai_daily_limit_date";
     try {
       const todayDateStr = new Date().toLocaleDateString();
       const storedDate = localStorage.getItem(LIMIT_KEY_DATE);
-      let loadedSeconds = 18000;
+      let loadedSeconds = 10800;
 
       if (storedDate === todayDateStr) {
         const storedSeconds = localStorage.getItem(LIMIT_KEY_SEC);
         if (storedSeconds !== null) {
-          loadedSeconds = parseInt(storedSeconds, 10);
+          loadedSeconds = Math.min(10800, parseInt(storedSeconds, 10));
         }
       } else {
         localStorage.setItem(LIMIT_KEY_DATE, todayDateStr);
-        localStorage.setItem(LIMIT_KEY_SEC, "18000");
+        localStorage.setItem(LIMIT_KEY_SEC, "10800");
       }
       setSecondsLeft(loadedSeconds);
     } catch (e) {
@@ -46,6 +76,9 @@ export default function App() {
     const LIMIT_KEY_SEC = "veloxai_daily_limit_seconds";
     const timer = setInterval(() => {
       setSecondsLeft((prev) => {
+        if (isPremium) {
+          return 10800; // Keep full for premium users
+        }
         const next = prev > 0 ? prev - 1 : 0;
         try {
           localStorage.setItem(LIMIT_KEY_SEC, next.toString());
@@ -54,7 +87,7 @@ export default function App() {
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isPremium]);
 
   // Load chat sessions from localStorage on init
   useEffect(() => {
@@ -150,7 +183,7 @@ export default function App() {
   };
 
   // Core function: Send user message and stream back AI response
-  const handleSendMessage = async (text: string, image?: string) => {
+  const handleSendMessage = async (text: string, image?: string, attachmentName?: string) => {
     if (!activeSessionId || isGenerating) return;
 
     const currentSession = sessions.find((s) => s.id === activeSessionId);
@@ -164,6 +197,7 @@ export default function App() {
       role: "user",
       text,
       image,
+      attachmentName,
       timestamp: new Date(),
     };
 
@@ -210,7 +244,18 @@ export default function App() {
     try {
       // Find instruction of selected system prompt preset
       const currentPreset = PRESETS.find((p) => p.id === currentSession.presetId);
-      const systemInstruction = currentPreset ? currentPreset.instruction : "";
+      const baseInstruction = currentPreset ? currentPreset.instruction : "";
+      
+      // Inject global capability for high-quality on-demand image generation via Pollinations AI
+      const systemInstruction = baseInstruction + 
+        "\n\nCRITICAL VISUAL CAPABILITY: Sizda foydalanuvchi xohishiga ko'ra professional, go'zal va yuqori sifatli rasmlarni chizib berish (yaratish) xizmati mavjud! " +
+        "Agar foydalanuvchi sizdan biror rasm chizishni, yaratishni, namoyish qilishni so'rasa yoki '... rasmini chiz', '... rasmini ko'rsat', '... rasm' kabi iboralar ishlatsa, " +
+        "siz ularga javobingiz davomida albatta Markdown rasm tegi orqali tasvirni taqdim eting:\n" +
+        "`![Tavsif](https://image.pollinations.ai/p/{prompt}?width=1024&height=1024&nologo=true)`\n\n" +
+        "Muhim qoidalar:\n" +
+        "1. {prompt} qismini HAR DOIM ingliz tilida, juda batafsil, badiiy va teshakor qilib tasvirlang (masalan, foydalanuvchi 'yashil olma' desa, promptga 'fresh green apple on a wooden table, soft light, studio lighting, hyperrealistic, 8k resolution' deb yozing).\n" +
+        "2. {prompt} ichidagi barcha bo'sh joylar (spaces) o'rniga faqat '%20' belgisini ishlating (masalan: fresh%20green%20apple).\n" +
+        "3. Hech qachon 'men rasm chiza olmayman' ko'rinishida rad etmang! Har doim mukammal inglizcha prompt yaratib, havola orqali rasm taqdim eting.";
 
       // Send requests upstream to Express server
       const response = await fetch("/api/chat", {
@@ -242,18 +287,31 @@ export default function App() {
 
       let accumulatedResponse = "";
       let isStreamingDone = false;
+      let streamBuffer = "";
 
       while (!isStreamingDone) {
         const { value, done } = await reader.read();
-        if (done) break;
+        
+        let chunk = "";
+        if (value) {
+          chunk = decoder.decode(value, { stream: true });
+        }
+        
+        if (done) {
+          chunk += decoder.decode();
+          isStreamingDone = true;
+        }
 
-        const chunk = decoder.decode(value);
-        // SSE responses separates blocks with double newlines
-        const lines = chunk.split("\n\n");
+        streamBuffer += chunk;
+        const lines = streamBuffer.split("\n");
+        streamBuffer = done ? "" : (lines.pop() || "");
 
         for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const dataString = line.substring(6).trim();
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+
+          if (trimmed.startsWith("data: ")) {
+            const dataString = trimmed.substring(6).trim();
             
             if (dataString === "[DONE]") {
               isStreamingDone = true;
@@ -299,7 +357,7 @@ export default function App() {
                 );
               }
             } catch (jsonErr) {
-              // Ignore parse errors from chunk splits
+              console.warn("SSE JSON Parse error:", jsonErr, "On payload:", dataString);
             }
           }
         }
@@ -361,6 +419,8 @@ export default function App() {
         searchGroundingEnabled={activeSession ? activeSession.searchGroundingEnabled : false}
         onToggleSearchGrounding={handleToggleSearchGrounding}
         secondsLeft={secondsLeft}
+        isPremium={isPremium}
+        onOpenPremium={() => setPremiumModalOpen(true)}
       />
 
       {/* Main Panel Content container */}
@@ -369,9 +429,9 @@ export default function App() {
         <header className="flex h-16 items-center justify-between border-b border-[#2f2f2f] bg-[#212121] px-4 md:px-8 text-[#ececec]">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setSidebarOpen(true)}
-              className="rounded-lg p-2 text-[#b4b4b4] hover:bg-[#2f2f2f] hover:text-white md:hidden transition-colors"
-              title="Menyuni ochish"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="rounded-lg p-2 text-[#b4b4b4] hover:bg-[#2f2f2f] hover:text-white transition-colors cursor-pointer"
+              title={sidebarOpen ? "Menyuni yopish" : "Menyuni ochish"}
             >
               <Menu className="h-5 w-5" />
             </button>
@@ -386,7 +446,21 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1.5 rounded-full bg-[#171717] px-2.5 py-1 text-[11px] font-medium text-[#ececec] border border-[#2f2f2f]">
+            {isPremium ? (
+              <span className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-500/10 to-yellow-500/10 px-3 py-1 text-[11px] font-bold text-amber-400 border border-amber-500/20 shadow-sm">
+                <Sparkles className="h-3.5 w-3.5 text-amber-400 fill-amber-400" />
+                Premium Faol
+              </span>
+            ) : (
+              <button
+                onClick={() => setPremiumModalOpen(true)}
+                className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-600 hover:to-yellow-500 px-3 py-1 text-[11px] font-bold text-black shadow-lg transition-all cursor-pointer active:scale-95"
+              >
+                <Sparkles className="h-3.5 w-3.5 fill-black" />
+                Premiumga o'tish ✨
+              </button>
+            )}
+            <span className="hidden sm:flex items-center gap-1.5 rounded-full bg-[#171717] px-2.5 py-1 text-[11px] font-medium text-[#ececec] border border-[#2f2f2f]">
               <Sparkles className="h-3 w-3" />
               Gemini 2.5 Flash Active
             </span>
@@ -400,8 +474,17 @@ export default function App() {
           isGenerating={isGenerating}
           onSelectPreset={handleSelectPreset}
           error={error}
+          isPremium={isPremium}
+          onOpenPremium={() => setPremiumModalOpen(true)}
         />
       </div>
+
+      {/* Premium Option Modal */}
+      <PremiumModal 
+        isOpen={premiumModalOpen}
+        onClose={() => setPremiumModalOpen(false)}
+        onSuccess={handleActivatePremium}
+      />
     </div>
   );
 }

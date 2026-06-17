@@ -10,7 +10,8 @@ import {
   Sparkles, 
   Github,
   Globe,
-  Clock
+  Clock,
+  Award
 } from "lucide-react";
 import { ChatSession } from "../types";
 // @ts-ignore
@@ -27,6 +28,8 @@ interface SidebarProps {
   searchGroundingEnabled: boolean;
   onToggleSearchGrounding: () => void;
   secondsLeft: number;
+  isPremium?: boolean;
+  onOpenPremium?: () => void;
 }
 
 export default function Sidebar({
@@ -39,7 +42,9 @@ export default function Sidebar({
   setIsOpen,
   searchGroundingEnabled,
   onToggleSearchGrounding,
-  secondsLeft
+  secondsLeft,
+  isPremium = false,
+  onOpenPremium
 }: SidebarProps) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -69,9 +74,13 @@ export default function Sidebar({
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-[#2f2f2f] bg-[#171717] text-[#ececec] transition-transform duration-300 md:static md:translate-x-0 ${
-          isOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
+        className={`fixed inset-y-0 left-0 z-40 flex flex-col border-[#2f2f2f] bg-[#171717] text-[#ececec] transition-all duration-300 shrink-0
+          md:static md:translate-x-0 
+          ${isOpen 
+            ? "translate-x-0 w-72 opacity-100 border-r" 
+            : "-translate-x-full md:-translate-x-0 md:w-0 md:opacity-0 md:border-r-0 overflow-hidden"
+          }
+        `}
       >
         {/* Sidebar Header */}
         <div className="flex h-16 items-center justify-between px-4 border-b border-[#2f2f2f] bg-[#171717]">
@@ -177,49 +186,90 @@ export default function Sidebar({
 
         {/* Kunlik foydalanish limiti card */}
         <div className="p-3 border-t border-[#2f2f2f] bg-[#171717]">
-          <div className="rounded-lg bg-[#212121]/40 p-3.5 border border-[#2f2f2f]">
-            <div className="flex items-center gap-2 mb-2">
-              <Clock className={`h-4 w-4 ${secondsLeft > 0 ? "text-amber-500 animate-pulse" : "text-rose-500"}`} />
-              <div className="leading-none">
-                <span className="block text-xs font-semibold text-[#ececec] font-display">Tafakkur Limiti</span>
-                <span className="text-[10px] text-[#676767]">Kuniga 5 soat</span>
+          {isPremium ? (
+            <div className="rounded-lg bg-gradient-to-br from-amber-500/10 via-yellow-500/5 to-transparent p-3.5 border border-amber-500/20 relative overflow-hidden">
+              <div className="absolute top-1 right-2">
+                <Sparkles className="h-3 w-3 text-amber-500 animate-pulse" />
               </div>
-            </div>
+              <div className="flex items-center gap-2 mb-2">
+                <Award className="h-4.5 w-4.5 text-amber-400 fill-amber-400/20" />
+                <div className="leading-none">
+                  <span className="block text-xs font-bold text-amber-400 font-display uppercase tracking-wide">Premium Faol</span>
+                  <span className="text-[9px] text-[#b4b4b4]">Cheksiz vaqt & savol</span>
+                </div>
+              </div>
 
-            {/* Time Countdown Display */}
-            <div className="flex items-baseline justify-between mb-1.5">
-              <span className="text-[10px] text-[#b4b4b4]">Mavjud vaqt:</span>
-              <span className={`text-xs font-mono font-bold ${secondsLeft > 0 ? "text-amber-400" : "text-rose-500 animate-pulse"}`}>
-                {secondsLeft > 0 ? (() => {
-                  const hrs = Math.floor(secondsLeft / 3600);
-                  const mins = Math.floor((secondsLeft % 3600) / 60);
-                  const secs = secondsLeft % 60;
-                  return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-                })() : "00:00:00"}
-              </span>
-            </div>
+              <div className="flex items-baseline justify-between mb-1">
+                <span className="text-[10px] text-[#b4b4b4]">Suhbat vaqti:</span>
+                <span className="text-xs font-mono font-bold text-amber-300">
+                  CHEKSIZ ♾️
+                </span>
+              </div>
 
-            {/* Progress bar */}
-            <div className="w-full bg-[#1c1c1c] rounded-full h-1 overflow-hidden">
-              <div 
-                className={`h-full transition-all duration-1000 ${
-                  secondsLeft > 3600 
-                    ? "bg-[#d4a373]" 
-                    : secondsLeft > 0 
-                      ? "bg-amber-500" 
-                      : "bg-rose-500"
-                }`}
-                style={{ width: `${Math.min(100, Math.max(0, (secondsLeft / 18000) * 100))}%` }}
-              />
-            </div>
+              <div className="w-full bg-[#1c1c1c] h-1 rounded-full overflow-hidden">
+                <div className="h-full w-full bg-gradient-to-r from-amber-400 to-yellow-300" />
+              </div>
 
-            {/* Hint message matching "lekin soralgan hamma savolga javob bersin" */}
-            <p className="text-[9px] text-[#676767] mt-2 leading-relaxed">
-              {secondsLeft > 0 
-                ? "Suhbatingiz davomida bu vaqt kamayib boradi." 
-                : "Asosiy limit yakunlandi, lekin premium sovg'a sifatida xizmatimiz cheksiz va to'liq davom etmoqda!"}
-            </p>
-          </div>
+              <p className="text-[9px] text-[#b4b4b4]/90 mt-2 leading-relaxed">
+                Premium tarif faol! Barcha savollaringiz ustuvor tezlikda cheksiz qayta ishlanadi.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-lg bg-[#212121]/40 p-3.5 border border-[#2f2f2f]">
+              <div className="flex items-center gap-2 mb-2">
+                <Clock className={`h-4 w-4 ${secondsLeft > 0 ? "text-amber-500 animate-pulse" : "text-rose-500"}`} />
+                <div className="leading-none">
+                  <span className="block text-xs font-semibold text-[#ececec] font-display">Tafakkur Limiti</span>
+                  <span className="text-[10px] text-[#676767]">Kuniga 3 soat</span>
+                </div>
+              </div>
+
+              {/* Time Countdown Display */}
+              <div className="flex items-baseline justify-between mb-1.5">
+                <span className="text-[10px] text-[#b4b4b4]">Mavjud vaqt:</span>
+                <span className={`text-xs font-mono font-bold ${secondsLeft > 0 ? "text-amber-400" : "text-rose-500 animate-pulse"}`}>
+                  {secondsLeft > 0 ? (() => {
+                    const hrs = Math.floor(secondsLeft / 3600);
+                    const mins = Math.floor((secondsLeft % 3600) / 60);
+                    const secs = secondsLeft % 60;
+                    return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+                  })() : "00:00:00"}
+                </span>
+              </div>
+
+              {/* Progress bar */}
+              <div className="w-full bg-[#1c1c1c] rounded-full h-1 overflow-hidden">
+                <div 
+                  className={`h-full transition-all duration-1000 ${
+                    secondsLeft > 3600 
+                      ? "bg-[#d4a373]" 
+                      : secondsLeft > 0 
+                        ? "bg-amber-500" 
+                        : "bg-rose-500"
+                  }`}
+                  style={{ width: `${Math.min(100, Math.max(0, (secondsLeft / 10800) * 100))}%` }}
+                />
+              </div>
+
+              {/* Hint message matching "lekin soralgan hamma savolga javob bersin" */}
+              <p className="text-[9px] text-[#676767] mt-2 leading-relaxed">
+                {secondsLeft > 0 
+                  ? "Suhbatingiz davomida bu vaqt kamayib boradi." 
+                  : "Asosiy limit yakunlandi, lekin premium sovg'a sifatida xizmatimiz cheksiz va to'liq davom etmoqda!"}
+              </p>
+
+              {onOpenPremium && (
+                <button
+                  type="button"
+                  onClick={onOpenPremium}
+                  className="mt-3 w-full rounded-lg bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-600 hover:to-yellow-500 py-2 text-[11px] font-bold text-black shadow-md transition-all flex items-center justify-center gap-1 cursor-pointer active:scale-95"
+                >
+                  <Sparkles className="h-3 w-3 fill-black text-black" />
+                  Cheksiz Rejimni Ochish ($2)
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Google Search Grounding toggle */}
@@ -248,18 +298,34 @@ export default function Sidebar({
         </div>
 
         {/* Sidebar Footer Information */}
-        <div className="p-4 border-t border-[#2f2f2f] bg-[#171717] flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#4e4e4e] text-white border border-[#2f2f2f] font-bold uppercase text-xs">
-            U
+        <div className="p-4 border-t border-[#2f2f2f] bg-[#171717] flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className={`flex h-8 w-8 items-center justify-center rounded-full border font-bold uppercase text-xs shrink-0 ${
+              isPremium 
+                ? "bg-gradient-to-tr from-amber-500 to-yellow-300 text-black border-yellow-400 shadow-md animate-pulse font-extrabold" 
+                : "bg-[#4e4e4e] text-white border-[#2f2f2f]"
+            }`}>
+              U
+            </div>
+            <div className="min-w-0 flex-1 leading-tight">
+              <p className="truncate text-xs font-semibold text-[#ececec] font-display">
+                Foydalanuvchi
+              </p>
+              <p className={`truncate text-[9.5px] font-mono ${isPremium ? "text-amber-400 font-bold" : "text-[#676767]"}`}>
+                {isPremium ? "VIP Premium" : "Oddiy Foydalanuvchi"}
+              </p>
+            </div>
           </div>
-          <div className="min-w-0 flex-1 leading-tight">
-            <p className="truncate text-xs font-semibold text-[#ececec] font-display">
-              Foydalanuvchi
-            </p>
-            <p className="truncate text-[9.5px] text-[#676767] font-mono">
-              Premium Hamroh
-            </p>
-          </div>
+          
+          {!isPremium && onOpenPremium && (
+            <button
+              onClick={onOpenPremium}
+              className="p-1 px-1.5 rounded-md text-[#b4b4b4] hover:text-amber-400 hover:bg-[#212121] transition-colors cursor-pointer flex items-center gap-1 text-[10px]"
+              title="Premiumga o'tish"
+            >
+              <Sparkles className="h-3 w-3" /> Get
+            </button>
+          )}
         </div>
       </aside>
     </>

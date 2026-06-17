@@ -9,7 +9,7 @@
 
 interface ParsingResult {
   title: string;
-  category: "math" | "code" | "definition" | "poem" | "creator" | "advice" | "history" | "geography" | "business" | "science" | "language" | "health" | "general" | "greeting" | "gratitude";
+  category: "math" | "code" | "definition" | "poem" | "creator" | "advice" | "history" | "geography" | "business" | "science" | "language" | "health" | "general" | "greeting" | "gratitude" | "image";
   payload?: any;
 }
 
@@ -321,6 +321,26 @@ function parseIntent(prompt: string): ParsingResult {
     return { title: "Munosabat", category: "gratitude" };
   }
 
+  // 1.2 Image Generation and Drawing check
+  if (
+    normalized.includes("rasm") ||
+    normalized.includes("tasvir") ||
+    normalized.includes("chiz") ||
+    normalized.includes("draw") ||
+    normalized.includes("generate") ||
+    normalized.includes("image") ||
+    normalized.includes("foto") ||
+    normalized.includes("peyzaj") ||
+    normalized.includes("shakllantir") ||
+    normalized.includes("ko'rsat") ||
+    normalized.includes("korsat")
+  ) {
+    return {
+      title: extractCleanTerm(prompt, ["rasm", "chiz", "ko'rsat", "korsat", "yarat", "tasvir", "draw", "generate", "image", "chizib", "ber", "haqida", "menga", "foto", "shakllantir"]),
+      category: "image"
+    };
+  }
+
   // 2. Creator / Identity check
   if (
     normalized.includes("kim yaratdi") ||
@@ -463,6 +483,18 @@ export function generateLocalFallback(prompt: string): string {
     ];
     const index = Math.abs(normalized.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0)) % responses.length;
     return responses[index];
+  }
+
+  // 2.5 Fallback Image Generation Response
+  if (intent.category === "image") {
+    const cleanPrompt = encodeURIComponent(topic || "gorgeous landscape 8k");
+    return `# Tasvir Yaratish Markazi: **${topic}**
+    
+Siz so'ragan **${topic}** tasviri Stable Diffusion hamda ochiq neyron tarmoqlarimiz orqali muvaffaqiyatli chizildi:
+
+![${topic}](https://image.pollinations.ai/p/${cleanPrompt}?width=1024&height=1024&nologo=true)
+
+*Ushbu unikal tasvir sizning so'rovingiz bo'yicha maxsus shakllantirildi. Rasm ustiga bosib uni alohida oynada ochishingiz yoki to'g'ridan-to'g'ri o'z qurilmangizga yuklab olishingiz mumkin!*`;
   }
 
   // 3. Identity response

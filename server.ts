@@ -39,6 +39,7 @@ app.post("/api/chat", async (req, res) => {
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
       
       const systemNotice = `> ⚠️ **TIZIM ESLATMASI (KALIT SOZLANMAGAN)** \n> Bepul va tezkor to'liq aqlli Gemini 3.5-Flash modeliga ulanish uchun: ekranning o'ng tepasidagi **Settings > Secrets** panelida o'z kalitingizni (**GEMINI_API_KEY**) kiriting. \n> *Hozirda sizga VeloxAi Oflayn/Fallback hamrohi orqali javob yozilmoqda:*\n\n---\n\n`;
       res.write(`data: ${JSON.stringify({ text: systemNotice })}\n\n`);
@@ -112,6 +113,7 @@ app.post("/api/chat", async (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
 
     const responseStream = await ai.models.generateContentStream({
       model: "gemini-3.5-flash",
@@ -138,6 +140,7 @@ app.post("/api/chat", async (req, res) => {
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
     }
 
     const userPrompt = messages && messages.length > 0 

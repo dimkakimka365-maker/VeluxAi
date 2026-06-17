@@ -2,7 +2,8 @@ export interface Message {
   id: string;
   role: "user" | "assistant";
   text: string;
-  image?: string; // Base64 encoding of image if any
+  image?: string; // Base64 encoding of image/file if any
+  attachmentName?: string; // Original filename of the attached file if any
   timestamp: Date;
   isStreaming?: boolean;
 }

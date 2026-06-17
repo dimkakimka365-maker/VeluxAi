@@ -12,7 +12,11 @@ import {
   VolumeX, 
   AlertCircle,
   Code,
-  ArrowRight
+  ArrowRight,
+  File,
+  FileText,
+  FileSpreadsheet,
+  Paperclip
 } from "lucide-react";
 import Markdown from "react-markdown";
 import { ChatSession, Message } from "../types";
@@ -20,12 +24,31 @@ import AIPresetSelector from "./AIPresetSelector";
 // @ts-ignore
 import logoImg from "../assets/images/velox_ai_logo_1781334265901.jpg";
 
+const getFileIcon = (mimeType: string, filename: string) => {
+  const ext = filename.split(".").pop()?.toLowerCase();
+  if (mimeType.startsWith("image/")) {
+    return <ImageIcon className="h-4 w-4 text-sky-400" />;
+  }
+  if (mimeType.startsWith("text/") || ["txt", "json", "md", "ts", "js", "html", "css", "py", "rs", "cpp", "go"].includes(ext || "")) {
+    return <FileText className="h-4 w-4 text-emerald-400" />;
+  }
+  if (["csv", "xlsx", "xls"].includes(ext || "")) {
+    return <FileSpreadsheet className="h-4 w-4 text-green-500" />;
+  }
+  if (ext === "pdf") {
+    return <File className="h-4 w-4 text-red-500" />;
+  }
+  return <File className="h-4 w-4 text-amber-500" />;
+};
+
 interface ChatWindowProps {
   session: ChatSession | null;
-  onSendMessage: (text: string, image?: string) => void;
+  onSendMessage: (text: string, image?: string, attachmentName?: string) => void;
   isGenerating: boolean;
   onSelectPreset: (presetId: string) => void;
   error?: string | null;
+  isPremium?: boolean;
+  onOpenPremium?: () => void;
 }
 
 export default function ChatWindow({
@@ -33,10 +56,13 @@ export default function ChatWindow({
   onSendMessage,
   isGenerating,
   onSelectPreset,
-  error
+  error,
+  isPremium = false,
+  onOpenPremium
 }: ChatWindowProps) {
   const [inputText, setInputText] = useState("");
-  const [attachedImage, setAttachedImage] = useState<string | null>(null);
+  const [attachedFile, setAttachedFile] = useState<string | null>(null);
+  const [attachedFileName, setAttachedFileName] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   
@@ -50,11 +76,13 @@ export default function ChatWindow({
 
   const handleSend = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if ((!inputText.trim() && !attachedImage) || isGenerating) return;
+    if ((!inputText.trim() && !attachedFile) || isGenerating) return;
 
-    onSendMessage(inputText.trim(), attachedImage || undefined);
+    const textToSend = inputText.trim() || "Ushbu faylni tahlil qilib bering.";
+    onSendMessage(textToSend, attachedFile || undefined, attachedFileName || undefined);
     setInputText("");
-    setAttachedImage(null);
+    setAttachedFile(null);
+    setAttachedFileName(null);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -64,19 +92,26 @@ export default function ChatWindow({
     }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size > 15 * 1024 * 1024) {
+      alert("Fayl hajmi juda katta (maksimal 15MB ruxsat etiladi).");
+      return;
+    }
+
     const reader = new FileReader();
     reader.onloadend = () => {
-      setAttachedImage(reader.result as string);
+      setAttachedFile(reader.result as string);
+      setAttachedFileName(file.name);
     };
     reader.readAsDataURL(file);
   };
 
-  const removeAttachedImage = () => {
-    setAttachedImage(null);
+  const removeAttachedFile = () => {
+    setAttachedFile(null);
+    setAttachedFileName(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -186,6 +221,27 @@ export default function ChatWindow({
               </p>
             </div>
 
+            {/* Onboarding Premium Banner (Gemini Advanced style) */}
+            {!isPremium && onOpenPremium && (
+              <div className="bg-gradient-to-r from-amber-500/15 via-yellow-500/5 to-[#171717] rounded-xl p-5 border border-amber-500/20 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4 max-w-3xl mx-auto">
+                <div className="space-y-1 text-center md:text-left">
+                  <div className="flex items-center justify-center md:justify-start gap-1.5 text-amber-400 font-bold text-xs uppercase tracking-wider font-mono">
+                    <Sparkles className="h-3.5 w-3.5 text-amber-400 fill-amber-400" />
+                    VeloxAi Premium Rejim
+                  </div>
+                  <h3 className="font-display text-sm font-bold text-white">Cheksiz vaqt va savollar berish rejimiga o'ting</h3>
+                  <p className="text-[11px] text-[#b4b4b4] leading-relaxed">Atiga $2 evaziga 3 soatlik kunlik vaqt cheklovini olib tashlang va uzluksiz tezkor Gemini 2.5 Flash modelidan to'liq erkinlikda foydalaning.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onOpenPremium}
+                  className="rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-600 hover:to-yellow-500 text-black font-bold text-xs px-5 py-3 transition-all active:scale-95 shrink-0 shadow-lg cursor-pointer flex items-center gap-1.5"
+                >
+                  Hammasini ochish <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+
             {/* AI Preset selector container */}
             <div className="bg-[#171717] rounded-xl p-5 border border-[#2f2f2f] shadow-xl">
               <AIPresetSelector 
@@ -195,33 +251,37 @@ export default function ChatWindow({
             </div>
 
             {/* Quick starts cards */}
-            <div className="space-y-3">
+            <div className="space-y-4">
               <h4 className="font-display text-[11px] font-bold text-[#676767] uppercase tracking-wider text-center">
                 Mavzulardan Boshlash
               </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {suggestions.map((s, index) => (
                   <button
                     key={index}
                     onClick={() => {
                       setInputText(s.prompt);
                     }}
-                    className="flex items-center justify-between p-4 rounded-xl bg-[#171717] border border-[#2f2f2f] hover:border-[#676767] hover:bg-[#212121]/50 transition-all text-left group cursor-pointer"
+                    className="flex flex-col justify-between p-4 rounded-xl bg-[#171717] border border-[#2f2f2f] hover:border-amber-500/50 hover:bg-[#202020] transition-all duration-300 text-left group cursor-pointer hover:shadow-lg hover:shadow-black/30 hover:-translate-y-1 h-[140px] relative overflow-hidden"
                   >
-                    <div className="flex items-center gap-3">
-                      <span className="text-xl shrink-0" role="img" aria-label="emoji">
-                        {s.emoji}
-                      </span>
-                      <div className="leading-tight">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-2xl" role="img" aria-label="emoji">
+                          {s.emoji}
+                        </span>
+                        <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                          <ArrowRight className="h-4 w-4 text-amber-400 group-hover:translate-x-1 transition-transform" />
+                        </span>
+                      </div>
+                      <div className="leading-tight space-y-1">
                         <span className="block text-sm font-semibold text-[#ececec] group-hover:text-white transition-colors font-display">
                           {s.title}
                         </span>
-                        <span className="block text-[11px] text-[#676767] truncate max-w-xs md:max-w-md">
+                        <span className="block text-[11px] text-[#8a8a8a] leading-relaxed line-clamp-3">
                           {s.prompt}
                         </span>
                       </div>
                     </div>
-                    <ArrowRight className="h-4 w-4 text-[#676767] group-hover:text-white group-hover:translate-x-1 transition-all shrink-0" />
                   </button>
                 ))}
               </div>
@@ -261,16 +321,40 @@ export default function ChatWindow({
                       {isAssistant ? "VeloxAi" : "Siz"}
                     </div>
 
-                    {/* Optional Image Attachment Display */}
+                    {/* Optional File/Image Attachment Display */}
                     {message.image && (
-                      <div className="relative group rounded-xl overflow-hidden max-w-sm border border-[#2f2f2f] bg-[#171717]/50 shadow-lg mt-1">
-                        <img
-                          src={message.image}
-                          alt="attached data"
-                          className="max-h-60 object-cover rounded-lg"
-                          referrerPolicy="no-referrer"
-                        />
-                      </div>
+                      message.image.startsWith("data:image/") ? (
+                        <div className="relative group rounded-xl overflow-hidden max-w-sm border border-[#2f2f2f] bg-[#171717]/50 shadow-lg mt-1">
+                          <img
+                            src={message.image}
+                            alt="birlashtirilgan rasm"
+                            className="max-h-60 object-cover rounded-lg"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-3 p-3 rounded-xl border border-[#2f2f2f] bg-[#171717]/80 max-w-sm mt-1">
+                          <div className="p-2.5 rounded-lg bg-[#2a2a2a] shrink-0 text-[#ececec]">
+                            {getFileIcon(message.image.split(";")[0].replace("data:", ""), message.attachmentName || "fayl")}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-white truncate">
+                              {message.attachmentName || "Birlashtirilgan fayl"}
+                            </p>
+                            <p className="text-[10px] text-[#8a8a8a] uppercase font-mono mt-0.5">
+                              {message.image.split(";")[0].replace("data:", "").split("/")[1] || "hujjat"}
+                            </p>
+                          </div>
+                          <a
+                            href={message.image}
+                            download={message.attachmentName || "fayl"}
+                            className="p-1.5 rounded hover:bg-[#2a2a2a] text-[#b4b4b4] hover:text-white transition-all scale-100 active:scale-95"
+                            title="Yuklab olish"
+                          >
+                            <ArrowRight className="h-4 w-4 rotate-90" />
+                          </a>
+                        </div>
+                      )
                     )}
 
                     {/* Chat Bubble Body card */}
@@ -333,6 +417,32 @@ export default function ChatWindow({
                                       <code className="block select-text text-gray-300">
                                         {codeString}
                                       </code>
+                                    </div>
+                                  </div>
+                                );
+                              },
+                              img({ src, alt, ...props }) {
+                                return (
+                                  <div className="my-4 rounded-2xl overflow-hidden border border-[#2f2f2f] bg-[#171717]/80 shadow-2xl max-w-xl group relative">
+                                    <img
+                                      src={src || ""}
+                                      alt={alt || "Generatsiya qilingan rasm"}
+                                      className="w-full h-auto object-cover max-h-[500px]"
+                                      referrerPolicy="no-referrer"
+                                      {...props}
+                                    />
+                                    <div className="absolute bottom-0 left-0 right-0 bg-black/70 backdrop-blur-md px-4 py-3 text-xs text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-between">
+                                      <span className="font-medium truncate max-w-[70%]">{alt || "VeloxAi Tasvir"}</span>
+                                      <div className="flex gap-3">
+                                        <a
+                                          href={src || ""}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="text-sky-400 hover:text-sky-300 font-semibold transition-colors animate-pulse"
+                                        >
+                                          To'liq ochish
+                                        </a>
+                                      </div>
                                     </div>
                                   </div>
                                 );
@@ -432,21 +542,31 @@ export default function ChatWindow({
         <form onSubmit={handleSend} className="max-w-3xl mx-auto relative">
           
           {/* Attachment preview if any */}
-          {attachedImage && (
-            <div className="absolute -top-16 left-2 flex items-center gap-2 p-1.5 bg-[#171717] border border-[#2f2f2f] rounded-xl shadow-lg">
-              <img
-                src={attachedImage}
-                alt="thumbnail attached"
-                className="w-10 h-10 object-cover rounded-lg"
-                referrerPolicy="no-referrer"
-              />
+          {attachedFile && (
+            <div className="absolute -top-16 left-2 flex items-center gap-2.5 p-1.5 bg-[#171717] border border-[#2f2f2f] rounded-xl shadow-2xl text-xs z-10 animate-fade-in animate-duration-200">
+              {attachedFile.startsWith("data:image/") ? (
+                <img
+                  src={attachedFile}
+                  alt="thumbnail attached"
+                  className="w-10 h-10 object-cover rounded-lg border border-[#2f2f2f]"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-lg bg-[#252525] border border-[#2f2f2f] flex items-center justify-center shrink-0">
+                  {getFileIcon(attachedFile.split(";")[0].replace("data:", ""), attachedFileName || "fayl")}
+                </div>
+              )}
+              <div className="flex flex-col max-w-[12rem] pr-1">
+                <span className="text-[11px] font-semibold text-white truncate max-w-[10rem]">{attachedFileName || "Hujjat biriktirildi"}</span>
+                <span className="text-[9px] text-[#8a8a8a] uppercase font-mono">{attachedFile.split(";")[0].replace("data:", "").split("/")[1]?.substring(0, 8) || "fayl"}</span>
+              </div>
               <button
                 type="button"
-                onClick={removeAttachedImage}
-                className="p-1 rounded-full bg-gray-800 text-gray-400 hover:text-white"
-                title="Rasm o'chirish"
+                onClick={removeAttachedFile}
+                className="p-1 rounded-full bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white cursor-pointer ml-1 shrink-0 transition-colors"
+                title="Faylni o'chirish"
               >
-                <X className="h-3 w-3" />
+                <X className="h-3.5 w-3.5" />
               </button>
             </div>
           )}
@@ -454,22 +574,22 @@ export default function ChatWindow({
           {/* Core Input box wrapper */}
           <div className="relative flex items-center rounded-2xl bg-[#2f2f2f] border border-[#3e3e3e] focus-within:border-[#676767] shadow-2xl transition-all">
             
-            {/* Image attachment button trigger */}
+            {/* Attachment paperclip and image selection */}
             <button
               type="button"
               onClick={triggerFileSelection}
               className={`p-3 text-[#676767] hover:text-white hover:bg-[#212121]/50 rounded-l-2xl transition-colors cursor-pointer ${
-                attachedImage ? "text-white" : ""
+                attachedFile ? "text-white" : ""
               }`}
-              title="Rasm yuklash"
+              title="Rasm yoki fayl yuklash"
             >
-              <ImageIcon className="h-5 w-5" />
+              <Paperclip className="h-5 w-5" />
             </button>
             <input
               type="file"
               ref={fileInputRef}
-              onChange={handleImageUpload}
-              accept="image/*"
+              onChange={handleFileUpload}
+              accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.json,.xml,.js,.ts,.py,.rs,.cpp,.html,.css"
               className="hidden"
             />
 
@@ -480,8 +600,8 @@ export default function ChatWindow({
               onKeyDown={handleKeyDown}
               placeholder={
                 session.messages.length === 0 
-                  ? "Suhbatni boshlash uchun savol bering..." 
-                  : "Menga o'xshab istalgan narsani so'rang..."
+                  ? "Suhbatni boshlash va fayllarni tahlil qilish uchun yozing..." 
+                  : "Menga o'xshab istalgan narsani so'rang yoki fayl yuklang..."
               }
               rows={1}
               className="w-full bg-transparent text-sm py-4 px-2 pr-16 max-h-36 resize-none overflow-y-auto focus:outline-none text-[#ececec] placeholder-[#676767] font-sans"
@@ -499,9 +619,9 @@ export default function ChatWindow({
               
               <button
                 type="submit"
-                disabled={(!inputText.trim() && !attachedImage) || isGenerating}
+                disabled={(!inputText.trim() && !attachedFile) || isGenerating}
                 className={`p-2 rounded-xl transition-all ${
-                  (inputText.trim() || attachedImage) && !isGenerating
+                  (inputText.trim() || attachedFile) && !isGenerating
                     ? "bg-white text-black hover:bg-gray-200 cursor-pointer"
                     : "bg-[#212121] text-[#676767] pointer-events-none"
                 }`}
