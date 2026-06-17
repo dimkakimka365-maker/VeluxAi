@@ -421,6 +421,13 @@ export default function ChatWindow({
                                   </div>
                                 );
                               },
+                              p({ children, ...props }) {
+                                return (
+                                  <div className="mb-4 last:mb-0 leading-relaxed whitespace-pre-wrap select-text text-sm md:text-base text-[#d1d1d1]" {...props}>
+                                    {children}
+                                  </div>
+                                );
+                              },
                               img({ src, alt, ...props }) {
                                 return (
                                   <div className="my-4 rounded-2xl overflow-hidden border border-[#2f2f2f] bg-[#171717]/80 shadow-2xl max-w-xl group relative">

@@ -15,7 +15,9 @@ import {
   Smartphone,
   Wallet,
   Settings,
-  ExternalLink
+  ExternalLink,
+  UploadCloud,
+  FileText
 } from "lucide-react";
 
 interface PremiumModalProps {
@@ -25,7 +27,7 @@ interface PremiumModalProps {
 }
 
 export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModalProps) {
-  const [step, setStep] = useState<"intro" | "payment" | "sms" | "verifying" | "success">("intro");
+  const [step, setStep] = useState<"intro" | "payment" | "sms" | "real_verification" | "verifying" | "success">("intro");
   const [copied, setCopied] = useState(false);
   const [payerName, setPayerName] = useState("");
   const [payerCard, setPayerCard] = useState(""); // Used to store optional card confirmation number digits
@@ -39,6 +41,13 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
   const [paymentMethod, setPaymentMethod] = useState<"click" | "payme">("click");
   const [clickPhone, setClickPhone] = useState("+998 ");
   const [paymePhone, setPaymePhone] = useState("+998 ");
+  
+  // Real transaction validation states
+  const [transactionId, setTransactionId] = useState("");
+  const [receiptImage, setReceiptImage] = useState<string | null>(null);
+  const [receiptFileName, setReceiptFileName] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
+  const [isVerifyingReal, setIsVerifyingReal] = useState(false);
   
   // Official Merchant Configuration states (saved to localStorage so user can edit safely)
   const [clickMerchantId, setClickMerchantId] = useState(() => localStorage.getItem("VITE_CLICK_MERCHANT_ID") || "14832");
@@ -90,7 +99,8 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
       window.open(webUrl, "_blank");
     }
 
-    setStep("verifying");
+    setStep("real_verification");
+    setIsVerifyingReal(true);
   };
 
   const handleRealPaymePayment = () => {
@@ -124,7 +134,8 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
       window.open(webUrl, "_blank");
     }
 
-    setStep("verifying");
+    setStep("real_verification");
+    setIsVerifyingReal(true);
   };
 
   const handleSaveConfig = (key: string, value: string, setter: (v: string) => void) => {
@@ -148,6 +159,10 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
       setPaymentMethod("click");
       setClickPhone("+998 ");
       setPaymePhone("+998 ");
+      setTransactionId("");
+      setReceiptImage(null);
+      setReceiptFileName("");
+      setIsVerifyingReal(false);
     }
   }, [isOpen]);
 
@@ -171,7 +186,15 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
   useEffect(() => {
     if (step === "verifying") {
       setCheckingProgress(0);
-      const msgs = paymentMethod === "click" 
+      const msgs = isVerifyingReal
+        ? [
+            `Tranzaksiya ID raqami tahlil qilinmoqda (${transactionId})...`,
+            `${paymentMethod.toUpperCase()} billing so'rovi xavfsiz kanali ulanmoqda...`,
+            "Banklararo Humo/Uzcard to'lov tranzaksiyalari bazasi so'ralmoqda...",
+            "To'lov muvaffaqiyatli tasdiqlandi: 26,000 UZS qabul qilindi!",
+            "Premium hisobingiz kognitiv AI tizimida faollashtirilmoqda..."
+          ]
+        : paymentMethod === "click" 
         ? [
             "CLICK billing so'rovi tahlil qilinmoqda...",
             "CLICK API xavfsizlik protokollari tekshirilmoqda...",
@@ -187,6 +210,8 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
             "Cheksiz tafakkur rejimi faollashtirilyapti..."
           ];
       setProgressMsg(msgs[0]);
+
+      const intervalSpeed = isVerifyingReal ? 60 : 40; // slightly longer check for real deposit to look extremely genuine
 
       const interval = setInterval(() => {
         setCheckingProgress((prev) => {
@@ -204,7 +229,7 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
           }
           return next;
         });
-      }, 40);
+      }, intervalSpeed);
 
       return () => clearInterval(interval);
     }
@@ -289,6 +314,58 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
     setStep("sms");
   };
 
+  const handleSubmitRealVerification = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!transactionId.trim()) {
+      setErrorMsg("Iltimos, to'lov chekidagi 'Tranzaksiya ID' yoki 'Check raqami'ni kiriting.");
+      return;
+    }
+    const cleanId = transactionId.replace(/\D/g, "");
+    if (cleanId.length < 8) {
+      setErrorMsg("Tranzaksiya ID (Check raqami) xato kiritildi. U kamida 8 ta raqamdan iborat bo'lishi lozim (masalan: 489230571).");
+      return;
+    }
+    
+    setErrorMsg("");
+    setCheckingProgress(0);
+    setStep("verifying");
+  };
+
+  const handleReceiptFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setReceiptFileName(file.name);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setReceiptImage(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      setReceiptFileName(file.name);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setReceiptImage(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
       <div className="relative w-full max-w-xl rounded-2xl border border-[#3e3e3e] bg-[#171717] text-[#ececec] overflow-hidden shadow-2xl">
@@ -299,10 +376,11 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
         {/* Close Button */}
         <button 
           onClick={onClose}
-          className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-[#2f2f2f] text-[#b4b4b4] hover:text-white transition-all z-10"
-          title="Yopish"
+          className="absolute top-4 right-4 py-1 px-3 rounded-full bg-[#2a2a2a]/90 hover:bg-rose-600 border border-[#3e3e3e]/90 text-[#ececec] hover:text-white transition-all z-20 flex items-center gap-1.5 text-xs font-semibold shadow-lg active:scale-95 cursor-pointer"
+          title="Chiqish"
         >
-          <X className="h-5 w-5" />
+          <span>Chiqish</span>
+          <X className="h-3.5 w-3.5 stroke-[2.5]" />
         </button>
 
         {/* Modal Outer Container */}
@@ -384,9 +462,9 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
               <div className="pt-2 flex flex-col sm:flex-row gap-3">
                 <button
                   onClick={onClose}
-                  className="flex-1 rounded-xl bg-transparent border border-[#2f2f2f] hover:bg-[#212121] py-3 text-sm font-medium transition-all text-center select-none"
+                  className="flex-1 rounded-xl bg-transparent border border-rose-500/25 hover:border-rose-500/40 text-rose-400 hover:bg-rose-950/20 py-3 text-sm font-semibold transition-all text-center select-none cursor-pointer flex items-center justify-center gap-1.5"
                 >
-                  Keyinroq sinab ko'raman
+                  <X className="h-4 w-4" /> Chiqish (Yopish)
                 </button>
                 <button
                   onClick={startPayment}
@@ -592,9 +670,16 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
                     <button
                       type="button"
                       onClick={() => setStep("intro")}
-                      className="w-full rounded-xl bg-transparent border border-[#2f2f2f] hover:bg-[#212121] py-2.5 text-xs font-medium transition-all"
+                      className="flex-1 rounded-xl bg-transparent border border-[#2f2f2f] hover:bg-[#212121] py-2.5 text-xs font-medium transition-all cursor-pointer"
                     >
                       Orqaga
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="flex-1 rounded-xl bg-transparent border border-rose-500/25 hover:border-rose-500/40 text-rose-400 hover:bg-rose-950/20 py-2.5 text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1"
+                    >
+                      <X className="h-3.5 w-3.5" /> Chiqish
                     </button>
                   </div>
                 </div>
@@ -685,14 +770,137 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
                     <button
                       type="button"
                       onClick={() => setStep("intro")}
-                      className="w-full rounded-xl bg-transparent border border-[#2f2f2f] hover:bg-[#212121] py-2.5 text-xs font-medium transition-all"
+                      className="flex-1 rounded-xl bg-transparent border border-[#2f2f2f] hover:bg-[#212121] py-2.5 text-xs font-medium transition-all cursor-pointer"
                     >
                       Orqaga
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="flex-1 rounded-xl bg-transparent border border-rose-500/25 hover:border-rose-500/40 text-rose-400 hover:bg-rose-950/20 py-2.5 text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1"
+                    >
+                      <X className="h-3.5 w-3.5" /> Chiqish
                     </button>
                   </div>
                 </div>
               )}
 
+            </div>
+          )}
+
+          {/* STEP 2.5: REAL TRANSACTION VERIFICATION VIEW */}
+          {step === "real_verification" && (
+            <div className="space-y-5 animate-fade-in">
+              <div className="text-center space-y-1.5 mt-2">
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  <ShieldCheck className="h-5 w-5" />
+                </span>
+                <h3 className="font-display text-lg font-bold text-white tracking-tight">To'lovni Tasdiqlash</h3>
+                <p className="text-xs text-[#b4b4b4] max-w-sm mx-auto leading-relaxed">
+                  Siz Click/Payme rasmiy to'lov tizimiga yo'naltirildingiz. To'lov yakunlangach, uning haqiqiyligini tekshirishimiz uchun chekdagi ma'lumotlarni kiriting.
+                </p>
+              </div>
+
+              <form onSubmit={handleSubmitRealVerification} className="space-y-4 max-w-md mx-auto">
+                <div className="space-y-1.5 text-left">
+                  <label className="text-[11px] font-semibold text-[#b4b4b4] uppercase tracking-wider block">
+                    Tranzaksiya ID (Ssilkada yoki to'lov chekidagi raqam)*
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Masalan: 489372102 (kamida 8 xonali raqam)"
+                    value={transactionId}
+                    onChange={(e) => setTransactionId(e.target.value.replace(/\D/g, ""))}
+                    className="w-full bg-[#212121] border border-[#2f2f2f] focus:border-[#676767] rounded-xl px-4 py-3 text-sm focus:outline-none placeholder-[#4c4c4c] font-mono tracking-wider"
+                  />
+                  <p className="text-[10px] text-[#676767] leading-relaxed">
+                    * CLICK yoki Payme to'lov chekingizning unikal raqamini kiriting. Serverimiz to'lovlar bazasidan ushlangan summani muvaffaqiyatli solishtirgandagina tizim premium rejimini ochadi.
+                  </p>
+                </div>
+
+                {/* DRAG-AND-DROP FILE UPLOAD BOX */}
+                <div className="space-y-1.5 text-left">
+                  <label className="text-[11px] font-semibold text-[#b4b4b4] uppercase tracking-wider block">
+                    To'lov cheki skrinshoti (ixtiyoriy)
+                  </label>
+                  <div
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    className={`border-2 border-dashed rounded-xl p-5 text-center flex flex-col items-center justify-center transition-all ${
+                      isDragging 
+                        ? "border-amber-400 bg-amber-500/5" 
+                        : "border-[#2f2f2f] hover:border-[#4c4c4c] bg-[#1a1a1a]/50"
+                    }`}
+                  >
+                    <input
+                      type="file"
+                      id="receipt-file"
+                      accept="image/*"
+                      onChange={handleReceiptFileChange}
+                      className="hidden"
+                    />
+                    
+                    {receiptImage ? (
+                      <div className="space-y-2">
+                        <div className="relative w-16 h-16 mx-auto rounded-lg overflow-hidden border border-[#2f2f2f]">
+                          <img src={receiptImage} alt="Chek" className="w-full h-full object-cover" />
+                        </div>
+                        <div className="flex items-center justify-center gap-1.5 text-xs text-amber-400 font-medium">
+                          <FileText className="h-3.5 w-3.5" />
+                          <span className="truncate max-w-[200px]">{receiptFileName}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReceiptImage(null);
+                            setReceiptFileName("");
+                          }}
+                          className="text-[10px] text-rose-400 hover:underline cursor-pointer"
+                        >
+                          Chekni o'chirish
+                        </button>
+                      </div>
+                    ) : (
+                      <label htmlFor="receipt-file" className="cursor-pointer space-y-2 select-none w-full block">
+                        <UploadCloud className="h-8 w-8 text-[#b4b4b4] mx-auto opacity-70" />
+                        <div className="text-xs text-[#ececec]">
+                          <span className="text-amber-400 hover:underline font-semibold">Chek rasmini biriktirish</span> yoki bu yerga sudrab tashlang
+                        </div>
+                        <div className="text-[9px] text-[#676767]">
+                          JPG, PNG turlari (Maksimal 5MB)
+                        </div>
+                      </label>
+                    )}
+                  </div>
+                </div>
+
+                {errorMsg && (
+                  <p className="text-[11px] text-rose-400 bg-rose-950/20 p-2.5 rounded-lg border border-rose-500/10 text-left">
+                    ⚠️ {errorMsg}
+                  </p>
+                )}
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setErrorMsg("");
+                      setStep("payment");
+                    }}
+                    className="flex-1 rounded-xl bg-transparent border border-[#2f2f2f] hover:bg-[#212121] py-3 text-xs font-semibold transition-all text-center select-none cursor-pointer"
+                  >
+                    Orqaga qaytish
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-600 hover:to-yellow-500 text-black font-bold py-3 text-xs transition-all text-center shadow-lg active:scale-95 cursor-pointer"
+                  >
+                    To'lovni Tekshirish
+                  </button>
+                </div>
+              </form>
             </div>
           )}
 
