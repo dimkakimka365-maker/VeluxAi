@@ -11,9 +11,15 @@ import {
   Github,
   Globe,
   Clock,
-  Award
+  Award,
+  Archive,
+  ArchiveRestore,
+  ShieldAlert,
+  Database,
+  LogOut,
+  LogIn
 } from "lucide-react";
-import { ChatSession } from "../types";
+import { ChatSession, UserProfile } from "../types";
 // @ts-ignore
 import logoImg from "../assets/images/velox_ai_logo_1781334265901.jpg";
 
@@ -23,6 +29,7 @@ interface SidebarProps {
   onSelectSession: (id: string) => void;
   onNewChat: () => void;
   onDeleteSession: (id: string) => void;
+  onToggleArchiveSession: (id: string) => void;
   isOpen: boolean;
   setIsOpen: (isOpen: boolean) => void;
   searchGroundingEnabled: boolean;
@@ -30,6 +37,10 @@ interface SidebarProps {
   secondsLeft: number;
   isPremium?: boolean;
   onOpenPremium?: () => void;
+  isSupabaseConnected?: boolean;
+  userProfile?: UserProfile | null;
+  onGoogleLogin?: () => void;
+  onLogout?: () => void;
 }
 
 export default function Sidebar({
@@ -38,15 +49,33 @@ export default function Sidebar({
   onSelectSession,
   onNewChat,
   onDeleteSession,
+  onToggleArchiveSession,
   isOpen,
   setIsOpen,
   searchGroundingEnabled,
   onToggleSearchGrounding,
   secondsLeft,
   isPremium = false,
-  onOpenPremium
+  onOpenPremium,
+  isSupabaseConnected = false,
+  userProfile = null,
+  onGoogleLogin,
+  onLogout
 }: SidebarProps) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [recentTab, setRecentTab] = useState<"active" | "archived">("active");
+  const [showSupabaseHelp, setShowSupabaseHelp] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
+
+  const filteredSessions = sessions.filter((s) => {
+    if (recentTab === "active") {
+      return !s.isArchived;
+    } else {
+      return !!s.isArchived;
+    }
+  });
+
+  const archivedCount = sessions.filter(s => s.isArchived).length;
 
   const handleDeleteClick = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -127,17 +156,53 @@ export default function Sidebar({
 
         {/* Sessions list */}
         <div className="flex-1 overflow-y-auto px-2 py-3 space-y-1">
-          <div className="px-3 mb-2 text-[11px] font-bold text-[#676767] uppercase tracking-wider font-display">
-            Recent
+          <div className="px-3 mb-3 flex items-center justify-between">
+            <span className="text-[11px] font-bold text-[#676767] uppercase tracking-wider font-display">
+              Recent
+            </span>
+            <div className="flex bg-[#232323] rounded-lg p-0.5 border border-[#2e2e2e] text-[10px]/none font-semibold">
+              <button
+                type="button"
+                onClick={() => setRecentTab("active")}
+                className={`px-2 py-1.5 rounded-md transition-all cursor-pointer ${
+                  recentTab === "active"
+                    ? "bg-[#313131] text-white shadow-sm"
+                    : "text-[#8e8e8e] hover:text-white"
+                }`}
+              >
+                Aktiv
+              </button>
+              <button
+                type="button"
+                onClick={() => setRecentTab("archived")}
+                className={`px-2 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                  recentTab === "archived"
+                    ? "bg-[#313131] text-white shadow-sm"
+                    : "text-[#8e8e8e] hover:text-white"
+                }`}
+              >
+                Arxiv
+                {archivedCount > 0 && (
+                  <span className="px-1.5 py-0.5 bg-amber-500/15 text-amber-400 font-extrabold rounded-full text-[8px]">
+                    {archivedCount}
+                  </span>
+                )}
+              </button>
+            </div>
           </div>
           
-          {sessions.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-center px-4">
-              <MessageSquare className="h-6 w-6 text-[#676767] mb-2 stroke-1" />
-              <p className="text-xs text-[#b4b4b4] font-display">Tarix hozircha bo'sh</p>
+          {filteredSessions.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center px-4">
+              <MessageSquare className="h-6 w-6 text-[#4c4c4c] mb-2 stroke-1" />
+              <p className="text-xs text-[#8e8e8e] font-display font-medium">
+                {recentTab === "active" ? "Aktiv suhbatlar yo'q" : "Arxivlangan suhbatlar yo'q"}
+              </p>
+              <p className="text-[10px] text-[#555555] mt-1">
+                {recentTab === "active" ? "Yangi chat yaratib suhbatni boshlang" : "Suhbatlarni bu yerga arxivlashingiz mumkin"}
+              </p>
             </div>
           ) : (
-            sessions.map((session) => {
+            filteredSessions.map((session) => {
               const isActive = session.id === activeSessionId;
               const isConfirming = confirmDeleteId === session.id;
 
@@ -158,25 +223,44 @@ export default function Sidebar({
                   }`}
                 >
                   <MessageSquare className={`h-4 w-4 shrink-0 ${isActive ? 'text-white' : 'text-[#676767]'}`} />
-                  <span className="truncate text-sm pr-6 leading-tight select-none">
+                  <span className="truncate text-sm pr-14 leading-tight select-none">
                     {session.title || "Yangi suhbat"}
                   </span>
 
-                  {/* Delete Button */}
-                  <button
-                    onClick={(e) => handleDeleteClick(e, session.id)}
-                    className={`absolute right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-md text-[#676767] hover:text-red-400 hover:bg-[#2f2f2f]/60 ${
-                      isConfirming ? "opacity-100 text-red-400 bg-red-950/20" : ""
-                    }`}
-                    title={isConfirming ? "O'chirishni tasdiqlang" : "Suhbatni o'chirish"}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  {/* Actions Toolbed */}
+                  <div className="absolute right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all z-10">
+                    {/* Archive / Restore Button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleArchiveSession(session.id);
+                      }}
+                      className="p-1 rounded-md text-[#676767] hover:text-amber-400 hover:bg-[#2f2f2f]/60 transition-colors"
+                      title={session.isArchived ? "Faollashtirish (Arxivdan chiqarish)" : "Arxivlash"}
+                    >
+                      {session.isArchived ? (
+                        <ArchiveRestore className="h-3.5 w-3.5" />
+                      ) : (
+                        <Archive className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+
+                    {/* Delete Button */}
+                    <button
+                      onClick={(e) => handleDeleteClick(e, session.id)}
+                      className={`p-1 rounded-md text-[#676767] hover:text-red-400 hover:bg-[#2f2f2f]/60 transition-colors ${
+                        isConfirming ? "text-red-400 bg-red-950/20" : ""
+                      }`}
+                      title={isConfirming ? "O'chirishni tasdiqlang" : "Suhbatni o'chirish"}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                   
                   {isConfirming && (
-                    <span className="absolute right-8 text-[10px] bg-red-950/40 text-red-200 px-1.5 py-0.5 rounded font-display animate-pulse">
-                      Tasdiqlang
-                    </span>
+                     <span className="absolute right-14 text-[9px] bg-red-950/60 text-red-200 px-1.5 py-0.5 rounded font-display animate-pulse font-medium z-10">
+                       Tasdiqlang
+                     </span>
                   )}
                 </div>
               );
@@ -184,92 +268,15 @@ export default function Sidebar({
           )}
         </div>
 
-        {/* Kunlik foydalanish limiti card */}
+        {/* Velox AI Free Status Banner */}
         <div className="p-3 border-t border-[#2f2f2f] bg-[#171717]">
-          {isPremium ? (
-            <div className="rounded-lg bg-gradient-to-br from-amber-500/10 via-yellow-500/5 to-transparent p-3.5 border border-amber-500/20 relative overflow-hidden">
-              <div className="absolute top-1 right-2">
-                <Sparkles className="h-3 w-3 text-amber-500 animate-pulse" />
-              </div>
-              <div className="flex items-center gap-2 mb-2">
-                <Award className="h-4.5 w-4.5 text-amber-400 fill-amber-400/20" />
-                <div className="leading-none">
-                  <span className="block text-xs font-bold text-amber-400 font-display uppercase tracking-wide">Premium Faol</span>
-                  <span className="text-[9px] text-[#b4b4b4]">Cheksiz vaqt & savol</span>
-                </div>
-              </div>
-
-              <div className="flex items-baseline justify-between mb-1">
-                <span className="text-[10px] text-[#b4b4b4]">Suhbat vaqti:</span>
-                <span className="text-xs font-mono font-bold text-amber-300">
-                  CHEKSIZ ♾️
-                </span>
-              </div>
-
-              <div className="w-full bg-[#1c1c1c] h-1 rounded-full overflow-hidden">
-                <div className="h-full w-full bg-gradient-to-r from-amber-400 to-yellow-300" />
-              </div>
-
-              <p className="text-[9px] text-[#b4b4b4]/90 mt-2 leading-relaxed">
-                Premium tarif faol! Barcha savollaringiz ustuvor tezlikda cheksiz qayta ishlanadi.
-              </p>
+          <div className="rounded-lg bg-[#212121]/30 p-3.5 border border-[#2f2f2f] flex items-center gap-3">
+            <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+            <div className="leading-tight">
+              <span className="block text-xs font-semibold text-white">Xizmat To'liq Yoqilgan</span>
+              <span className="text-[10px] text-[#8e8e8e]">Cheksiz aqlli muloqot • Tekin</span>
             </div>
-          ) : (
-            <div className="rounded-lg bg-[#212121]/40 p-3.5 border border-[#2f2f2f]">
-              <div className="flex items-center gap-2 mb-2">
-                <Clock className={`h-4 w-4 ${secondsLeft > 0 ? "text-amber-500 animate-pulse" : "text-rose-500"}`} />
-                <div className="leading-none">
-                  <span className="block text-xs font-semibold text-[#ececec] font-display">Tafakkur Limiti</span>
-                  <span className="text-[10px] text-[#676767]">Kuniga 3 soat</span>
-                </div>
-              </div>
-
-              {/* Time Countdown Display */}
-              <div className="flex items-baseline justify-between mb-1.5">
-                <span className="text-[10px] text-[#b4b4b4]">Mavjud vaqt:</span>
-                <span className={`text-xs font-mono font-bold ${secondsLeft > 0 ? "text-amber-400" : "text-rose-500 animate-pulse"}`}>
-                  {secondsLeft > 0 ? (() => {
-                    const hrs = Math.floor(secondsLeft / 3600);
-                    const mins = Math.floor((secondsLeft % 3600) / 60);
-                    const secs = secondsLeft % 60;
-                    return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-                  })() : "00:00:00"}
-                </span>
-              </div>
-
-              {/* Progress bar */}
-              <div className="w-full bg-[#1c1c1c] rounded-full h-1 overflow-hidden">
-                <div 
-                  className={`h-full transition-all duration-1000 ${
-                    secondsLeft > 3600 
-                      ? "bg-[#d4a373]" 
-                      : secondsLeft > 0 
-                        ? "bg-amber-500" 
-                        : "bg-rose-500"
-                  }`}
-                  style={{ width: `${Math.min(100, Math.max(0, (secondsLeft / 10800) * 100))}%` }}
-                />
-              </div>
-
-              {/* Hint message matching "lekin soralgan hamma savolga javob bersin" */}
-              <p className="text-[9px] text-[#676767] mt-2 leading-relaxed">
-                {secondsLeft > 0 
-                  ? "Suhbatingiz davomida bu vaqt kamayib boradi." 
-                  : "Asosiy limit yakunlandi, lekin premium sovg'a sifatida xizmatimiz cheksiz va to'liq davom etmoqda!"}
-              </p>
-
-              {onOpenPremium && (
-                <button
-                  type="button"
-                  onClick={onOpenPremium}
-                  className="mt-3 w-full rounded-lg bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-600 hover:to-yellow-500 py-2 text-[11px] font-bold text-black shadow-md transition-all flex items-center justify-center gap-1 cursor-pointer active:scale-95"
-                >
-                  <Sparkles className="h-3 w-3 fill-black text-black" />
-                  Cheksiz Rejimni Ochish ($2)
-                </button>
-              )}
-            </div>
-          )}
+          </div>
         </div>
 
         {/* Google Search Grounding toggle */}
@@ -297,35 +304,140 @@ export default function Sidebar({
           </div>
         </div>
 
-        {/* Sidebar Footer Information */}
-        <div className="p-4 border-t border-[#2f2f2f] bg-[#171717] flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className={`flex h-8 w-8 items-center justify-center rounded-full border font-bold uppercase text-xs shrink-0 ${
-              isPremium 
-                ? "bg-gradient-to-tr from-amber-500 to-yellow-300 text-black border-yellow-400 shadow-md animate-pulse font-extrabold" 
-                : "bg-[#4e4e4e] text-white border-[#2f2f2f]"
-            }`}>
-              U
+        {/* Supabase connection status indicator */}
+        <div className="p-3 border-t border-[#2f2f2f] bg-[#171717] space-y-2">
+          <div className="flex items-center justify-between rounded-lg bg-[#212121] p-3 border border-[#2f2f2f]">
+            <div className="flex items-center gap-2">
+              <Database className={`h-4 w-4 ${isSupabaseConnected ? "text-emerald-400" : "text-[#676767]"}`} />
+              <div className="leading-tight">
+                <span className="block text-xs font-semibold text-[#ececec]">Supabase Buluti</span>
+                <span className={`text-[9px] ${isSupabaseConnected ? "text-emerald-400 font-semibold" : "text-[#676767]"}`}>
+                  {isSupabaseConnected ? "Muvaffaqiyatli ulangan ✓" : "Lokal variantda ishlayapti"}
+                </span>
+              </div>
             </div>
-            <div className="min-w-0 flex-1 leading-tight">
-              <p className="truncate text-xs font-semibold text-[#ececec] font-display">
-                Foydalanuvchi
-              </p>
-              <p className={`truncate text-[9.5px] font-mono ${isPremium ? "text-amber-400 font-bold" : "text-[#676767]"}`}>
-                {isPremium ? "VIP Premium" : "Oddiy Foydalanuvchi"}
-              </p>
-            </div>
-          </div>
-          
-          {!isPremium && onOpenPremium && (
+            
             <button
-              onClick={onOpenPremium}
-              className="p-1 px-1.5 rounded-md text-[#b4b4b4] hover:text-amber-400 hover:bg-[#212121] transition-colors cursor-pointer flex items-center gap-1 text-[10px]"
-              title="Premiumga o'tish"
+              onClick={() => setShowSupabaseHelp(!showSupabaseHelp)}
+              className="text-[10px] text-amber-400 hover:underline cursor-pointer border border-amber-500/25 bg-amber-500/5 hover:bg-amber-500/10 rounded px-1.5 py-0.5 transition-all text-center select-none"
             >
-              <Sparkles className="h-3 w-3" /> Get
+              Info
+            </button>
+          </div>
+
+          {showSupabaseHelp && (
+            <div className="rounded-lg bg-[#1a1a1a] p-3 border border-[#2f2f2f] text-left space-y-2 animate-fade-in text-xs">
+              <div className="flex items-center justify-between">
+                <p className="font-semibold text-white text-[11px]">Supabase Integration</p>
+                <button 
+                  onClick={() => setShowSupabaseHelp(false)}
+                  className="text-[9px] text-[#8e8e8e] hover:text-white"
+                >
+                  Yopish
+                </button>
+              </div>
+              <p className="text-[10px] text-[#b4b4b4] leading-relaxed">
+                Ushbu loyiha Supabase orqali bulutli ma'lumotlar omborini qo'llab-quvvatlaydi. Sirlar bo'limiga VITE_SUPABASE_URL va VITE_SUPABASE_ANON_KEY ni kiriting.
+              </p>
+              <div className="space-y-1">
+                <span className="text-[9px] text-[#676767] uppercase block font-bold tracking-wider">Loyiha Jadvali:</span>
+                <div className="relative">
+                  <pre className="text-[8.5px] bg-[#212121] p-2 rounded text-yellow-200/90 font-mono overflow-x-auto max-h-24">
+                    {`create table velox_sessions (
+  id text primary key,
+  title text not null,
+  preset_id text not null,
+  search_grounding_enabled boolean not null default false,
+  is_archived boolean not null default false,
+  messages jsonb not null default '[]'::jsonb,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);`}
+                  </pre>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(`create table velox_sessions (
+  id text primary key,
+  title text not null,
+  preset_id text not null,
+  search_grounding_enabled boolean not null default false,
+  is_archived boolean not null default false,
+  messages jsonb not null default '[]'::jsonb,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);`);
+                      setCopiedSql(true);
+                      setTimeout(() => setCopiedSql(false), 2000);
+                    }}
+                    className="absolute top-1.5 right-1.5 text-[8.5px] bg-[#2f2f2f] text-white px-1.5 py-0.5 rounded hover:bg-[#3e3e3e]"
+                  >
+                    {copiedSql ? "Nusxalandi! ✓" : "Nusxalash"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Sidebar Footer Information */}
+        <div className="p-4 border-t border-[#2f2f2f] bg-[#171717] space-y-3">
+          {userProfile ? (
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-3 min-w-0">
+                {userProfile.picture ? (
+                  <img
+                    src={userProfile.picture}
+                    alt={userProfile.name}
+                    className="h-8 w-8 rounded-full object-cover border border-[#2f2f2f]"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className={`flex h-8 w-8 items-center justify-center rounded-full border font-bold uppercase text-xs shrink-0 bg-[#4e4e4e] text-white border-[#2f2f2f]`}>
+                    {userProfile.name ? userProfile.name.charAt(0) : "U"}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1 leading-tight">
+                  <p className="truncate text-xs font-semibold text-[#ececec] font-display">
+                    {userProfile.name}
+                  </p>
+                  <p className="truncate text-[9.5px] font-mono text-[#676767]">
+                    {userProfile.email}
+                  </p>
+                </div>
+              </div>
+              
+              <button
+                type="button"
+                onClick={onLogout}
+                className="p-1.5 rounded-lg text-[#676767] hover:text-red-400 hover:bg-[#212121] transition-colors cursor-pointer shrink-0"
+                title="Tizimdan chiqish"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onGoogleLogin}
+              className="w-full flex items-center justify-center gap-2 rounded-lg bg-white hover:bg-neutral-100 text-black px-3 py-2 text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-98"
+            >
+              <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+                <path d="M21.35,11.1H12v2.7h5.38C16.88,15.22,14.83,16.5,12,16.5c-3.03,0-5.6-2.05-6.52-4.8c-0.23-0.69-0.36-1.43-0.36-2.2 s0.13-1.51,0.36-2.2C6.4,4.55,8.97,2.5,12,2.5c1.8,0,3.42,0.67,4.68,1.77L18.8,2.15C17,0.82,14.65,0,12,0 C7.33,0,3.31,3.01,1.83,7.18C1.29,8.71,1,10.32,1,12s0.29,3.29,0.83,4.82C3.31,20.99,7.33,24,12,24c4.8,0,8.4-1.95,10.15-4.82 c0.94-1.54,1.35-3.41,1.35-5.08C23.5,13.1,23.4,12.1,21.35,11.1z" fill="#4285F4"/>
+              </svg>
+              <span>Google orqali ulanish</span>
             </button>
           )}
+
+          {/* Status Indicator Bar */}
+          <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#232323]">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="inline-block w-2 h-2 rounded-full shrink-0 bg-emerald-500"></span>
+              <span className="text-[10px] text-[#8e8e8e] font-display font-medium truncate">
+                Velox AI Server: Onlayn
+              </span>
+            </div>
+            <span className="text-[9.5px] font-bold text-emerald-400 uppercase select-none font-mono">
+              Aktiv
+            </span>
+          </div>
         </div>
       </aside>
     </>

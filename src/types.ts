@@ -15,6 +15,7 @@ export interface ChatSession {
   presetId: string;
   searchGroundingEnabled: boolean;
   createdAt: Date;
+  isArchived?: boolean;
 }
 
 export interface SystemPreset {
@@ -23,4 +24,10 @@ export interface SystemPreset {
   description: string;
   instruction: string;
   iconName: string; // lucide icon name representation
+}
+
+export interface UserProfile {
+  name: string;
+  email: string;
+  picture: string;
 }

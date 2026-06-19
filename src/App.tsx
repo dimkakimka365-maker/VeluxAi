@@ -3,8 +3,14 @@ import { Menu, Bot, Sparkles, MessageSquare, Plus } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import ChatWindow from "./components/ChatWindow";
 import PremiumModal from "./components/PremiumModal";
-import { ChatSession, Message } from "./types";
+import { ChatSession, Message, UserProfile } from "./types";
 import { PRESETS } from "./data/presets";
+import { 
+  getSupabase, 
+  fetchSessionsFromSupabase, 
+  saveSessionToSupabase, 
+  deleteSessionFromSupabase 
+} from "./lib/supabase";
 // @ts-ignore
 import logoImg from "./assets/images/velox_ai_logo_1781334265901.jpg";
 
@@ -31,21 +37,102 @@ export default function App() {
   }, []);
   const [error, setError] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number>(10800); // 3 hours default (3 * 3600)
-  const [isPremium, setIsPremium] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("veloxai_is_premium") === "true";
-    } catch (_) {
-      return false;
-    }
-  });
+  const [isPremium, setIsPremium] = useState<boolean>(true);
   const [premiumModalOpen, setPremiumModalOpen] = useState(false);
 
   const handleActivatePremium = () => {
-    try {
-      localStorage.setItem("veloxai_is_premium", "true");
-    } catch (_) {}
     setIsPremium(true);
   };
+
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(() => {
+    try {
+      const saved = localStorage.getItem("velox_user_profile");
+      return saved ? JSON.parse(saved) : null;
+    } catch (_) {
+      return null;
+    }
+  });
+
+  const handleGoogleLogin = async () => {
+    try {
+      const origin = window.location.origin;
+      const res = await fetch(`/api/auth/google/url?origin=${encodeURIComponent(origin)}`);
+      if (!res.ok) throw new Error("Server error getting OAuth URL");
+      const data = await res.json();
+      
+      const authWindow = window.open(
+        data.url,
+        "google_oauth_popup",
+        "width=500,height=600"
+      );
+      
+      if (!authWindow) {
+        alert("Iltimos, Google profilini bog'lash uchun brauzeringizda qalqib chiquvchi oynalarni ochishga ruxsat bering (Allow popups).");
+      }
+    } catch (err) {
+      console.error("Google Auth init failed:", err);
+    }
+  };
+
+  const handleLogout = () => {
+    setUserProfile(null);
+    try {
+      localStorage.removeItem("velox_user_profile");
+    } catch (_) {}
+  };
+
+  // Google OAuth popup message receiver
+  useEffect(() => {
+    const handleGoogleAuthMessage = (event: MessageEvent) => {
+      const origin = event.origin;
+      // Trust AI Studio runtime domains and localhost
+      if (
+        !origin.endsWith(".run.app") && 
+        !origin.includes("localhost") && 
+        !origin.endsWith(".netlify.app")
+      ) {
+        return;
+      }
+      
+      if (event.data?.type === "GOOGLE_AUTH_SUCCESS" && event.data?.user) {
+        const userInfo: UserProfile = event.data.user;
+        setUserProfile(userInfo);
+        try {
+          localStorage.setItem("velox_user_profile", JSON.stringify(userInfo));
+        } catch (_) {}
+        
+        // Build a brand-new high-fidelity personal chat session immediately when Google log in succeeds
+        const personalSessionId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11);
+        const welcomeMessageId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11);
+        
+        const welcomeMsg: Message = {
+          id: welcomeMessageId,
+          role: "assistant",
+          text: `👋 **Salom, ${userInfo.name}!** \n\nGoogle hisobingiz (**${userInfo.email}**) orqali **Velox AI** tizimiga muvaffaqiyatli bog'landingiz! 🎉 \n\nSiz uchun yangi **Shaxsiy Chat** muvaffaqiyatli yaratildi. \n\n**Bu shaxsiy muhitda quyidagilarni qilishingiz mumkin:**\n* 🤖 **Aqlli Muloqot:** Istalgan tilda murakkab mavzularni tahlil qiling\n* 🔍 **Smart Qidiruv (Search Grounding):** Real-vaqt ma'lumotlarini qidirish funksiyasini yoqing\n* ☁️ **Bulutli Saqlash:** Suhbatlaringiz xavfsiz ravishda Supabase bulutida sinxronizatsiya qilinadi\n\nBugun sizga qanday mavzuda ko'maklashishimni istaysiz? Marhamat, so'rang! 🚀`,
+          timestamp: new Date()
+        };
+
+        const personalSession: ChatSession = {
+          id: personalSessionId,
+          title: `Shaxsiy Chat: ${userInfo.name.split(" ")[0]}`,
+          messages: [welcomeMsg],
+          presetId: "general",
+          searchGroundingEnabled: false,
+          createdAt: new Date(),
+          isArchived: false,
+        };
+
+        setSessions((prev) => [personalSession, ...prev]);
+        setActiveSessionId(personalSessionId);
+        
+        // Persist to Supabase asynchronously
+        saveSessionToSupabase(personalSession).catch((err) => console.log("Supabase save personal session deferred:", err));
+      }
+    };
+    
+    window.addEventListener("message", handleGoogleAuthMessage);
+    return () => window.removeEventListener("message", handleGoogleAuthMessage);
+  }, [activeSessionId]);
 
   // Initialize and check the daily limit of 3 hours
   useEffect(() => {
@@ -89,33 +176,59 @@ export default function App() {
     return () => clearInterval(timer);
   }, [isPremium]);
 
-  // Load chat sessions from localStorage on init
+  const [isSupabaseConnected, setIsSupabaseConnected] = useState<boolean>(false);
+
+  // Load chat sessions from Supabase (or localStorage fallback) on init
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // Parse timestamp ISO strings back to Date objects
-          const decoded = parsed.map((session: any) => ({
-            ...session,
-            messages: session.messages.map((m: any) => ({
-              ...m,
-              timestamp: new Date(m.timestamp),
-            })),
-            createdAt: new Date(session.createdAt),
-          }));
-          setSessions(decoded);
-          setActiveSessionId(decoded[0].id);
-          return;
+    const initializeData = async () => {
+      const client = getSupabase();
+      if (client) {
+        try {
+          const cloudSessions = await fetchSessionsFromSupabase();
+          if (cloudSessions) {
+            setSessions(cloudSessions);
+            setIsSupabaseConnected(true);
+            if (cloudSessions.length > 0) {
+              setActiveSessionId(cloudSessions[0].id);
+            } else {
+              handleNewChat();
+            }
+            return;
+          }
+        } catch (e) {
+          console.warn("Could not load from Supabase database. Table might not exist or wrong keys, falling back to offline storage.", e);
         }
       }
-    } catch (e) {
-      console.error("Local storage error:", e);
-    }
 
-    // Fallback: Seed first default chat session if history is empty
-    handleNewChat();
+      // Offline localStorage fallback
+      try {
+        const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            // Parse timestamp ISO strings back to Date objects
+            const decoded = parsed.map((session: any) => ({
+              ...session,
+              messages: session.messages.map((m: any) => ({
+                ...m,
+                timestamp: new Date(m.timestamp),
+              })),
+              createdAt: new Date(session.createdAt),
+            }));
+            setSessions(decoded);
+            setActiveSessionId(decoded[0].id);
+            return;
+          }
+        }
+      } catch (e) {
+        console.error("Local storage error:", e);
+      }
+
+      // True Fallback if completely empty
+      handleNewChat();
+    };
+
+    initializeData();
   }, []);
 
   // Save sessions to localStorage whenever there's a modification
@@ -134,11 +247,13 @@ export default function App() {
       presetId: "general",
       searchGroundingEnabled: false,
       createdAt: new Date(),
+      isArchived: false,
     };
 
     setSessions((prev) => [newSession, ...prev]);
     setActiveSessionId(newSession.id);
     setError(null);
+    saveSessionToSupabase(newSession).catch((err) => console.log("Supabase save deferred:", err));
   };
 
   // Select a specific session
@@ -161,25 +276,70 @@ export default function App() {
       }
       return updated;
     });
+    deleteSessionFromSupabase(id).catch((err) => console.log("Supabase delete deferred:", err));
+  };
+
+  // Toggle archive state
+  const handleToggleArchiveSession = (id: string) => {
+    setSessions((prev) => {
+      const updated = prev.map((s) => {
+        if (s.id === id) {
+          const updatedSect = { ...s, isArchived: !s.isArchived };
+          saveSessionToSupabase(updatedSect).catch((err) => console.log("Supabase update archive deferred:", err));
+          return updatedSect;
+        }
+        return s;
+      });
+
+      // If archiving the active session, switch active selection to another non-archived session if available
+      const archivedSession = prev.find((s) => s.id === id);
+      const isNowToArchive = archivedSession ? !archivedSession.isArchived : false;
+      if (id === activeSessionId && isNowToArchive) {
+        const remainingActive = updated.filter((s) => !s.isArchived);
+        if (remainingActive.length > 0) {
+          setActiveSessionId(remainingActive[0].id);
+        } else {
+          // If no active ones are left, let select active/archived selector handle it or select the first updated
+          const anySession = updated.filter((s) => s.id !== id);
+          if (anySession.length > 0) {
+            setActiveSessionId(anySession[0].id);
+          } else {
+            setActiveSessionId(null);
+          }
+        }
+      }
+
+      return updated;
+    });
   };
 
   // Set system prompt configuration category
   const handleSelectPreset = (presetId: string) => {
     if (!activeSessionId) return;
-    setSessions((prev) =>
-      prev.map((s) => (s.id === activeSessionId ? { ...s, presetId } : s))
-    );
+    setSessions((prev) => {
+      const updated = prev.map((s) => (s.id === activeSessionId ? { ...s, presetId } : s));
+      const current = updated.find((s) => s.id === activeSessionId);
+      if (current) {
+        saveSessionToSupabase(current).catch((err) => console.log("Supabase save deferred:", err));
+      }
+      return updated;
+    });
   };
 
   const handleToggleSearchGrounding = () => {
     if (!activeSessionId) return;
-    setSessions((prev) =>
-      prev.map((s) =>
+    setSessions((prev) => {
+      const updated = prev.map((s) =>
         s.id === activeSessionId
           ? { ...s, searchGroundingEnabled: !s.searchGroundingEnabled }
           : s
-      )
-    );
+      );
+      const current = updated.find((s) => s.id === activeSessionId);
+      if (current) {
+        saveSessionToSupabase(current).catch((err) => console.log("Supabase save deferred:", err));
+      }
+      return updated;
+    });
   };
 
   // Core function: Send user message and stream back AI response
@@ -213,13 +373,18 @@ export default function App() {
     const updatedMessages = [...currentSession.messages, userMessage];
 
     // Append user message local state
-    setSessions((prev) =>
-      prev.map((s) =>
+    setSessions((prev) => {
+      const updated = prev.map((s) =>
         s.id === activeSessionId
           ? { ...s, title: updatedTitle, messages: updatedMessages }
           : s
-      )
-    );
+      );
+      const activeSess = updated.find((s) => s.id === activeSessionId);
+      if (activeSess) {
+        saveSessionToSupabase(activeSess).catch((err) => console.log("Supabase User Message sync deferred:", err));
+      }
+      return updated;
+    });
 
     setIsGenerating(true);
 
@@ -364,17 +529,20 @@ export default function App() {
       }
 
       // Stream finalized. Toggle off streaming cursor pulse
-      setSessions((prev) =>
-        prev.map((s) => {
+      setSessions((prev) => {
+        const updated = prev.map((s) => {
           if (s.id !== activeSessionId) return s;
-          return {
+          const updatedSess = {
             ...s,
             messages: s.messages.map((m) =>
               m.id === assistantMsgId ? { ...m, isStreaming: false } : m
             ),
           };
-        })
-      );
+          saveSessionToSupabase(updatedSess).catch((err) => console.log("Supabase AI Message sync deferred:", err));
+          return updatedSess;
+        });
+        return updated;
+      });
 
     } catch (err: any) {
       console.error(err);
@@ -414,6 +582,7 @@ export default function App() {
         onSelectSession={handleSelectSession}
         onNewChat={handleNewChat}
         onDeleteSession={handleDeleteSession}
+        onToggleArchiveSession={handleToggleArchiveSession}
         isOpen={sidebarOpen}
         setIsOpen={setSidebarOpen}
         searchGroundingEnabled={activeSession ? activeSession.searchGroundingEnabled : false}
@@ -421,6 +590,10 @@ export default function App() {
         secondsLeft={secondsLeft}
         isPremium={isPremium}
         onOpenPremium={() => setPremiumModalOpen(true)}
+        isSupabaseConnected={isSupabaseConnected}
+        userProfile={userProfile}
+        onGoogleLogin={handleGoogleLogin}
+        onLogout={handleLogout}
       />
 
       {/* Main Panel Content container */}
@@ -446,23 +619,13 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2">
-            {isPremium ? (
-              <span className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-500/10 to-yellow-500/10 px-3 py-1 text-[11px] font-bold text-amber-400 border border-amber-500/20 shadow-sm">
-                <Sparkles className="h-3.5 w-3.5 text-amber-400 fill-amber-400" />
-                Premium Faol
-              </span>
-            ) : (
-              <button
-                onClick={() => setPremiumModalOpen(true)}
-                className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-600 hover:to-yellow-500 px-3 py-1 text-[11px] font-bold text-black shadow-lg transition-all cursor-pointer active:scale-95"
-              >
-                <Sparkles className="h-3.5 w-3.5 fill-black" />
-                Premiumga o'tish ✨
-              </button>
-            )}
+            <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-[11px] font-bold text-emerald-400 border border-emerald-500/20 shadow-sm">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Cheksiz Tekin Rejim ✓
+            </span>
             <span className="hidden sm:flex items-center gap-1.5 rounded-full bg-[#171717] px-2.5 py-1 text-[11px] font-medium text-[#ececec] border border-[#2f2f2f]">
               <Sparkles className="h-3 w-3" />
-              Gemini 2.5 Flash Active
+              Gemini 2.5 Active
             </span>
           </div>
         </header>
