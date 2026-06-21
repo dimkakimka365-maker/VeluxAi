@@ -3,6 +3,7 @@ import { Menu, Bot, Sparkles, MessageSquare, Plus } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import ChatWindow from "./components/ChatWindow";
 import PremiumModal from "./components/PremiumModal";
+import LoginPage from "./components/LoginPage";
 import { ChatSession, Message, UserProfile } from "./types";
 import { PRESETS } from "./data/presets";
 import { 
@@ -53,6 +54,52 @@ export default function App() {
     }
   });
 
+  const handleGoogleLoginSuccess = async (userInfo: UserProfile) => {
+    setUserProfile(userInfo);
+    try {
+      localStorage.setItem("velox_user_profile", JSON.stringify(userInfo));
+    } catch (_) {}
+
+    // Let's check first if they have any stored sessions in Supabase to restore their memory
+    try {
+      const cloudSessions = await fetchSessionsFromSupabase(userInfo.email);
+      if (cloudSessions && cloudSessions.length > 0) {
+        setSessions(cloudSessions);
+        setActiveSessionId(cloudSessions[0].id);
+        return;
+      }
+    } catch (err) {
+      console.log("Could not check existing cloud sessions on login:", err);
+    }
+
+    // Build a brand-new high-fidelity personal chat session immediately when Google log in succeeds
+    const personalSessionId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11);
+    const welcomeMessageId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11);
+    
+    const welcomeMsg: Message = {
+      id: welcomeMessageId,
+      role: "assistant",
+      text: `👋 **Salom, ${userInfo.name}!** \n\nGoogle hisobingiz (**${userInfo.email}**) orqali **Velox AI** tizimiga muvaffaqiyatli bog'landingiz! 🎉 \n\nSiz uchun yangi **Shaxsiy Chat** muvaffaqiyatli yaratildi. \n\n**Bu shaxsiy muhitda quyidagilarni qilishingiz mumkin:**\n* 🤖 **Aqlli Muloqot:** Istalgan tilda murakkab mavzularni tahlil qiling\n* 🔍 **Smart Qidiruv (Search Grounding):** Real-vaqt ma'lumotlarini qidirish funksiyasini yoqing\n* ☁️ **Bulutli Saqlash:** Suhbatlaringiz xavfsiz va maxfiy saqlanadi\n\nBugun sizga qanday mavzuda ko'maklashishimni istaysiz? Marhamat, so'rang! 🚀`,
+      timestamp: new Date()
+    };
+
+    const personalSession: ChatSession = {
+      id: personalSessionId,
+      title: `Shaxsiy Chat: ${userInfo.name.split(" ")[0]}`,
+      messages: [welcomeMsg],
+      presetId: "general",
+      searchGroundingEnabled: false,
+      createdAt: new Date(),
+      isArchived: false,
+    };
+
+    setSessions([personalSession]);
+    setActiveSessionId(personalSessionId);
+    
+    // Persist to Supabase asynchronously
+    saveSessionToSupabase(personalSession, userInfo.email).catch((err) => console.log("Supabase save personal session deferred:", err));
+  };
+
   const handleGoogleLogin = async () => {
     try {
       const origin = window.location.origin;
@@ -74,12 +121,63 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setUserProfile(null);
     try {
       localStorage.removeItem("velox_user_profile");
     } catch (_) {}
+
+    const client = getSupabase();
+    if (client) {
+      try {
+        await client.auth.signOut();
+      } catch (err) {
+        console.error("Supabase signOut error:", err);
+      }
+    }
   };
+
+  // Supabase Auth and State listener
+  useEffect(() => {
+    const client = getSupabase();
+    if (client) {
+      // Fetch initial session
+      client.auth.getSession().then(({ data: { session } }: any) => {
+        if (session?.user) {
+          const user = session.user;
+          const u: UserProfile = {
+            name: user.user_metadata?.full_name || user.user_metadata?.name || user.email || "Foydalanuvchi",
+            email: user.email || "",
+            picture: user.user_metadata?.avatar_url || user.user_metadata?.picture || "",
+          };
+          setUserProfile(u);
+          localStorage.setItem("velox_user_profile", JSON.stringify(u));
+        }
+      });
+
+      // Handle real-time auth changes
+      const { data: { subscription } } = client.auth.onAuthStateChange((_event: string, session: any) => {
+        if (session?.user) {
+          const user = session.user;
+          const u: UserProfile = {
+            name: user.user_metadata?.full_name || user.user_metadata?.name || user.email || "Foydalanuvchi",
+            email: user.email || "",
+            picture: user.user_metadata?.avatar_url || user.user_metadata?.picture || "",
+          };
+          setUserProfile(u);
+          localStorage.setItem("velox_user_profile", JSON.stringify(u));
+        } else {
+          // Cleared on sign out
+          setUserProfile(null);
+          localStorage.removeItem("velox_user_profile");
+        }
+      });
+
+      return () => {
+        subscription.unsubscribe();
+      };
+    }
+  }, []);
 
   // Google OAuth popup message receiver
   useEffect(() => {
@@ -96,37 +194,7 @@ export default function App() {
       
       if (event.data?.type === "GOOGLE_AUTH_SUCCESS" && event.data?.user) {
         const userInfo: UserProfile = event.data.user;
-        setUserProfile(userInfo);
-        try {
-          localStorage.setItem("velox_user_profile", JSON.stringify(userInfo));
-        } catch (_) {}
-        
-        // Build a brand-new high-fidelity personal chat session immediately when Google log in succeeds
-        const personalSessionId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11);
-        const welcomeMessageId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11);
-        
-        const welcomeMsg: Message = {
-          id: welcomeMessageId,
-          role: "assistant",
-          text: `👋 **Salom, ${userInfo.name}!** \n\nGoogle hisobingiz (**${userInfo.email}**) orqali **Velox AI** tizimiga muvaffaqiyatli bog'landingiz! 🎉 \n\nSiz uchun yangi **Shaxsiy Chat** muvaffaqiyatli yaratildi. \n\n**Bu shaxsiy muhitda quyidagilarni qilishingiz mumkin:**\n* 🤖 **Aqlli Muloqot:** Istalgan tilda murakkab mavzularni tahlil qiling\n* 🔍 **Smart Qidiruv (Search Grounding):** Real-vaqt ma'lumotlarini qidirish funksiyasini yoqing\n* ☁️ **Bulutli Saqlash:** Suhbatlaringiz xavfsiz ravishda Supabase bulutida sinxronizatsiya qilinadi\n\nBugun sizga qanday mavzuda ko'maklashishimni istaysiz? Marhamat, so'rang! 🚀`,
-          timestamp: new Date()
-        };
-
-        const personalSession: ChatSession = {
-          id: personalSessionId,
-          title: `Shaxsiy Chat: ${userInfo.name.split(" ")[0]}`,
-          messages: [welcomeMsg],
-          presetId: "general",
-          searchGroundingEnabled: false,
-          createdAt: new Date(),
-          isArchived: false,
-        };
-
-        setSessions((prev) => [personalSession, ...prev]);
-        setActiveSessionId(personalSessionId);
-        
-        // Persist to Supabase asynchronously
-        saveSessionToSupabase(personalSession).catch((err) => console.log("Supabase save personal session deferred:", err));
+        handleGoogleLoginSuccess(userInfo);
       }
     };
     
@@ -178,13 +246,13 @@ export default function App() {
 
   const [isSupabaseConnected, setIsSupabaseConnected] = useState<boolean>(false);
 
-  // Load chat sessions from Supabase (or localStorage fallback) on init
+  // Load chat sessions from Supabase (or localStorage fallback) on init/user login change
   useEffect(() => {
     const initializeData = async () => {
       const client = getSupabase();
       if (client) {
         try {
-          const cloudSessions = await fetchSessionsFromSupabase();
+          const cloudSessions = await fetchSessionsFromSupabase(userProfile?.email);
           if (cloudSessions) {
             setSessions(cloudSessions);
             setIsSupabaseConnected(true);
@@ -229,7 +297,7 @@ export default function App() {
     };
 
     initializeData();
-  }, []);
+  }, [userProfile?.email]);
 
   // Save sessions to localStorage whenever there's a modification
   useEffect(() => {
@@ -572,6 +640,15 @@ export default function App() {
   };
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
+
+  if (!userProfile) {
+    return (
+      <LoginPage 
+        onLoginSuccess={handleGoogleLoginSuccess} 
+        onTriggerGoogleLogin={handleGoogleLogin} 
+      />
+    );
+  }
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#0d0d0d]">

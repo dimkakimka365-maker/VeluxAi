@@ -166,16 +166,18 @@ app.get(["/auth/google/callback", "/auth/google/callback/"], async (req, res) =>
   }
 });
 
-// Initialize the Gemini client securely
+// Initialize the Gemini client securely and lazily to dynamically pick up API keys
 // Always use User-Agent: 'aistudio-build' for telemetry as requested
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || "VELOX_AI_FALLBACK_SECURE_KEY",
-  httpOptions: {
-    headers: {
-      "User-Agent": "aistudio-build",
+const getGeminiClient = () => {
+  return new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY || "VELOX_AI_FALLBACK_SECURE_KEY",
+    httpOptions: {
+      headers: {
+        "User-Agent": "aistudio-build",
+      },
     },
-  },
-});
+  });
+};
 
 // Server-sent events chat stream endpoint
 app.post("/api/chat", async (req, res) => {
@@ -268,6 +270,7 @@ app.post("/api/chat", async (req, res) => {
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
 
+    const ai = getGeminiClient();
     const responseStream = await ai.models.generateContentStream({
       model: "gemini-3.5-flash",
       contents: formattedContents,
@@ -286,7 +289,7 @@ app.post("/api/chat", async (req, res) => {
     res.write("data: [DONE]\n\n");
     res.end();
   } catch (error: any) {
-    console.error("Gemini API call failed, activating local fallback:", error);
+    console.info("Gemini API call failed, activating local fallback gracefully:", error?.message || error);
     
     // Safely write headers if they haven't been sent yet
     if (!res.headersSent) {
@@ -306,11 +309,18 @@ app.post("/api/chat", async (req, res) => {
     let systemNotice = "";
     
     if (
+      String(errStatus).includes("503") || 
+      errStr.includes("503") || 
+      errStr.includes("UNAVAILABLE") || 
+      errStr.toLowerCase().includes("high demand") ||
+      errStr.toLowerCase().includes("temporary")
+    ) {
+      systemNotice = `> ⚠️ **TIZIM ESLATMASI (GEMINI HADDAN TASHQARI BAND)** \n> Bepul umumiy yoki shaxsiy Gemini modeli hozirda juda yuqori yuklama ostida ishlamoqda (UNAVAILABLE 503: High Demand). \n> Suhbat uzilib qolmasligi uchun tizimimiz sizni avtomatik ravishda VeloxAi ichki oflayn kognitiv tizimiga yo'naltirdi. \n> *Hozirda sizga VeloxAi kognitiv falsafiy oflayn tizimi orqali ishonchli javob qaytarilmoqda, keyinroq qayta urinib ko'rishingiz ham mumkin:*\n\n---\n\n`;
+    } else if (
       String(errStatus).includes("429") || 
       errStr.includes("RESOURCE_EXHAUSTED") || 
       errStr.includes("429") || 
       errStr.includes("quota") ||
-      errStr.includes("RESOURCE_EXHAUSTED") ||
       errStr.toLowerCase().includes("limit")
     ) {
       systemNotice = `> ⚠️ **TIZIM ESLATMASI (KVOTA TUGAGAN)** \n> Bepul va umumiy shaxsiy bo'lmagan Gemini API kaliti kunlik kvotasi to'lgan (RESOURCE_EXHAUSTED 429). \n> To'xtovsiz va tezkor Gemini 3.5-Flash modelida chatni davom ettirish uchun: **Settings > Secrets** panelida o'z shaxsiy **GEMINI_API_KEY** kalitingizni kiriting. \n> *Hozirda sizga VeloxAi kognitiv falsafiy oflayn tizimi orqali ishonchli javob qaytarilmoqda:*\n\n---\n\n`;

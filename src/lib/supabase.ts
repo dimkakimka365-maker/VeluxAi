@@ -11,7 +11,16 @@ export const supabaseConfig = {
 export function getSupabase() {
   if (supabaseInstance) return supabaseInstance;
 
-  if (!supabaseConfig.url || !supabaseConfig.anonKey) {
+  const isValidUrl = (val: string) => {
+    try {
+      const u = new URL(val);
+      return u.protocol === "http:" || u.protocol === "https:";
+    } catch (_) {
+      return false;
+    }
+  };
+
+  if (!supabaseConfig.url || !supabaseConfig.anonKey || !isValidUrl(supabaseConfig.url)) {
     return null;
   }
 
@@ -30,6 +39,7 @@ create table if not exists velox_sessions (
   id text primary key,
   title text not null,
   preset_id text not null,
+  user_email text default '', -- Foydalanuvchini ajratish uchun
   search_grounding_enabled boolean not null default false,
   is_archived boolean not null default false,
   messages jsonb not null default '[]'::jsonb,
@@ -39,21 +49,53 @@ create table if not exists velox_sessions (
 -- RLS (Row Level Security) ni o'chirish yoki hamma uchun ochiq qilish uchun:
 alter table velox_sessions enable row level security;
 create policy "Allow public access to sessions" on velox_sessions for all using (true);
+
+-- Agar jadval oldindan mavjud bo'lsa va faqat user_email ustunini qo'shish kerak bo'lsa:
+alter table velox_sessions add column if not exists user_email text default '';
 `;
 
-export async function fetchSessionsFromSupabase(): Promise<ChatSession[] | null> {
+function getStoredUserEmail(): string | undefined {
+  try {
+    const saved = localStorage.getItem("velox_user_profile");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return parsed?.email || undefined;
+    }
+  } catch (_) {}
+  return undefined;
+}
+
+export async function fetchSessionsFromSupabase(userEmail?: string): Promise<ChatSession[] | null> {
   const client = getSupabase();
   if (!client) return null;
 
-  try {
-    const { data, error } = await client
-      .from("velox_sessions")
-      .select("*")
-      .order("created_at", { ascending: false });
+  const email = userEmail || getStoredUserEmail();
 
+  try {
+    let query = client.from("velox_sessions").select("*");
+    if (email) {
+      query = query.eq("user_email", email);
+    }
+
+    let { data, error } = await query.order("created_at", { ascending: false });
+
+    // Fallback: Agar foydalanuvchida eski Supabase jadvali bo'lib, user_email ustuni bo'lmasa, barcha suhbatlarni yuklaymiz va Javascriptda saralaymiz
     if (error) {
-      console.warn("Supabase fetch error (table might not exist yet):", error);
-      throw error;
+      if (error.message?.includes("user_email") || error.code === "PGRST204") {
+        const fallbackQuery = await client
+          .from("velox_sessions")
+          .select("*")
+          .order("created_at", { ascending: false });
+        
+        if (fallbackQuery.error) throw fallbackQuery.error;
+        data = fallbackQuery.data;
+
+        if (email && data) {
+          data = data.filter((row: any) => !row.user_email || row.user_email === email);
+        }
+      } else {
+        throw error;
+      }
     }
 
     if (!data) return [];
@@ -78,12 +120,14 @@ export async function fetchSessionsFromSupabase(): Promise<ChatSession[] | null>
   }
 }
 
-export async function saveSessionToSupabase(session: ChatSession): Promise<boolean> {
+export async function saveSessionToSupabase(session: ChatSession, userEmail?: string): Promise<boolean> {
   const client = getSupabase();
   if (!client) return false;
 
+  const email = userEmail || getStoredUserEmail();
+
   try {
-    const payload = {
+    const payload: any = {
       id: session.id,
       title: session.title,
       preset_id: session.presetId,
@@ -100,13 +144,25 @@ export async function saveSessionToSupabase(session: ChatSession): Promise<boole
       created_at: session.createdAt.toISOString(),
     };
 
+    if (email) {
+      payload.user_email = email;
+    }
+
     const { error } = await client
       .from("velox_sessions")
       .upsert(payload, { onConflict: "id" });
 
+    // Fallback: Agar foydalanuvchi jadvalda user_email qo'shmagan bo'sa, uning ma'lumoti yo'qolmasligi uchun vaqtinchalik user_email usiz saqlaymiz
     if (error) {
-      console.warn("Supabase upsert error:", error);
-      throw error;
+      if (error.message?.includes("user_email") && email) {
+        delete payload.user_email;
+        const fallbackRes = await client
+          .from("velox_sessions")
+          .upsert(payload, { onConflict: "id" });
+        if (fallbackRes.error) throw fallbackRes.error;
+      } else {
+        throw error;
+      }
     }
 
     return true;
