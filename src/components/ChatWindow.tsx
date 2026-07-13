@@ -16,11 +16,13 @@ import {
   File,
   FileText,
   FileSpreadsheet,
-  Paperclip
+  Paperclip,
+  Clock
 } from "lucide-react";
 import Markdown from "react-markdown";
 import { ChatSession, Message } from "../types";
 import AIPresetSelector from "./AIPresetSelector";
+import ThreeDVideoStudio from "./ThreeDVideoStudio";
 // @ts-ignore
 import logoImg from "../assets/images/velox_ai_logo_1781334265901.jpg";
 
@@ -49,6 +51,7 @@ interface ChatWindowProps {
   error?: string | null;
   isPremium?: boolean;
   onOpenPremium?: () => void;
+  secondsLeft?: number;
 }
 
 export default function ChatWindow({
@@ -58,7 +61,8 @@ export default function ChatWindow({
   onSelectPreset,
   error,
   isPremium = false,
-  onOpenPremium
+  onOpenPremium,
+  secondsLeft = 10800
 }: ChatWindowProps) {
   const [inputText, setInputText] = useState("");
   const [attachedFile, setAttachedFile] = useState<string | null>(null);
@@ -379,6 +383,27 @@ export default function ChatWindow({
                                 const isInline = !match;
                                 const codeId = Math.random().toString(36).substr(2, 9);
 
+                                if (match && match[1] === "3d-video") {
+                                  try {
+                                    const parsed = JSON.parse(codeString);
+                                    return (
+                                      <ThreeDVideoStudio
+                                        prompt={parsed.prompt || "3D scene"}
+                                        modelType={parsed.modelType || "crystal"}
+                                        title={parsed.title || "3D Obyekt"}
+                                      />
+                                    );
+                                  } catch (err) {
+                                    return (
+                                      <ThreeDVideoStudio
+                                        prompt="3D scene"
+                                        modelType="crystal"
+                                        title="3D Model & Video Studio"
+                                      />
+                                    );
+                                  }
+                                }
+
                                 if (isInline) {
                                   return (
                                     <code className="bg-[#2f2f2f] text-[#ececec] px-1.5 py-0.5 rounded text-xs select-text border border-[#3e3e3e]" {...props}>
@@ -546,103 +571,127 @@ export default function ChatWindow({
 
       {/* Input Message Form Console */}
       <div className="p-6 shrink-0 bg-[#212121] border-t border-[#2f2f2f]/30">
-        <form onSubmit={handleSend} className="max-w-3xl mx-auto relative">
-          
-          {/* Attachment preview if any */}
-          {attachedFile && (
-            <div className="absolute -top-16 left-2 flex items-center gap-2.5 p-1.5 bg-[#171717] border border-[#2f2f2f] rounded-xl shadow-2xl text-xs z-10 animate-fade-in animate-duration-200">
-              {attachedFile.startsWith("data:image/") ? (
-                <img
-                  src={attachedFile}
-                  alt="thumbnail attached"
-                  className="w-10 h-10 object-cover rounded-lg border border-[#2f2f2f]"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-lg bg-[#252525] border border-[#2f2f2f] flex items-center justify-center shrink-0">
-                  {getFileIcon(attachedFile.split(";")[0].replace("data:", ""), attachedFileName || "fayl")}
-                </div>
-              )}
-              <div className="flex flex-col max-w-[12rem] pr-1">
-                <span className="text-[11px] font-semibold text-white truncate max-w-[10rem]">{attachedFileName || "Hujjat biriktirildi"}</span>
-                <span className="text-[9px] text-[#8a8a8a] uppercase font-mono">{attachedFile.split(";")[0].replace("data:", "").split("/")[1]?.substring(0, 8) || "fayl"}</span>
-              </div>
-              <button
-                type="button"
-                onClick={removeAttachedFile}
-                className="p-1 rounded-full bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white cursor-pointer ml-1 shrink-0 transition-colors"
-                title="Faylni o'chirish"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
+        {!isPremium && secondsLeft <= 0 ? (
+          <div className="max-w-3xl mx-auto bg-gradient-to-r from-amber-500/10 via-yellow-400/5 to-[#1c1c1c] border border-amber-500/20 rounded-2xl p-6 text-center space-y-4 shadow-xl relative overflow-hidden backdrop-blur-md animate-fade-in">
+            <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-amber-500 to-yellow-400" />
+            <div className="flex justify-center -mt-2">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 animate-bounce">
+                <Clock className="h-6 w-6 stroke-[2]" />
+              </span>
             </div>
-          )}
-
-          {/* Core Input box wrapper */}
-          <div className="relative flex items-center rounded-2xl bg-[#2f2f2f] border border-[#3e3e3e] focus-within:border-[#676767] shadow-2xl transition-all">
-            
-            {/* Attachment paperclip and image selection */}
+            <div className="space-y-1">
+              <h3 className="font-display text-base font-bold text-white">Bugungi 3 soatlik tekin foydalanish limitingiz tugadi!</h3>
+              <p className="text-xs text-[#b4b4b4] max-w-lg mx-auto leading-relaxed">
+                Premium tarif bilan cheksiz muloqot qiling. Atiga <strong>$3 / oyiga (39 000 UZS)</strong> evaziga barcha limitlarni abadiyga va cheksizga olib tashlang.
+              </p>
+            </div>
             <button
               type="button"
-              onClick={triggerFileSelection}
-              className={`p-3 text-[#676767] hover:text-white hover:bg-[#212121]/50 rounded-l-2xl transition-colors cursor-pointer ${
-                attachedFile ? "text-white" : ""
-              }`}
-              title="Rasm yoki fayl yuklash"
+              onClick={onOpenPremium}
+              className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-600 hover:to-yellow-500 text-black font-bold text-xs shadow-lg shadow-yellow-500/10 transition-all transform hover:scale-[1.02] active:scale-97 select-none cursor-pointer inline-flex items-center gap-1.5"
             >
-              <Paperclip className="h-5 w-5" />
+              <Sparkles className="h-3.5 w-3.5 fill-black/20" /> Premium Rejimga o'tish ($3)
             </button>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileUpload}
-              accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.json,.xml,.js,.ts,.py,.rs,.cpp,.html,.css"
-              className="hidden"
-            />
+          </div>
+        ) : (
+          <form onSubmit={handleSend} className="max-w-3xl mx-auto relative">
+            
+            {/* Attachment preview if any */}
+            {attachedFile && (
+              <div className="absolute -top-16 left-2 flex items-center gap-2.5 p-1.5 bg-[#171717] border border-[#2f2f2f] rounded-xl shadow-2xl text-xs z-10 animate-fade-in animate-duration-200">
+                {attachedFile.startsWith("data:image/") ? (
+                  <img
+                    src={attachedFile}
+                    alt="thumbnail attached"
+                    className="w-10 h-10 object-cover rounded-lg border border-[#2f2f2f]"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-lg bg-[#252525] border border-[#2f2f2f] flex items-center justify-center shrink-0">
+                    {getFileIcon(attachedFile.split(";")[0].replace("data:", ""), attachedFileName || "fayl")}
+                  </div>
+                )}
+                <div className="flex flex-col max-w-[12rem] pr-1">
+                  <span className="text-[11px] font-semibold text-white truncate max-w-[10rem]">{attachedFileName || "Hujjat biriktirildi"}</span>
+                  <span className="text-[9px] text-[#8a8a8a] uppercase font-mono">{attachedFile.split(";")[0].replace("data:", "").split("/")[1]?.substring(0, 8) || "fayl"}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={removeAttachedFile}
+                  className="p-1 rounded-full bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white cursor-pointer ml-1 shrink-0 transition-colors"
+                  title="Faylni o'chirish"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
 
-            {/* Input field */}
-            <textarea
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                session.messages.length === 0 
-                  ? "Suhbatni boshlash va fayllarni tahlil qilish uchun yozing..." 
-                  : "Menga o'xshab istalgan narsani so'rang yoki fayl yuklang..."
-              }
-              rows={1}
-              className="w-full bg-transparent text-sm py-4 px-2 pr-16 max-h-36 resize-none overflow-y-auto focus:outline-none text-[#ececec] placeholder-[#676767] font-sans"
-              style={{ minHeight: "24px" }}
-            />
-
-            {/* Send button interaction */}
-            <div className="absolute right-3 bottom-2.5 flex items-center gap-1.5 shrink-0">
-              {session.searchGroundingEnabled && (
-                <span className="flex items-center gap-1 text-[9px] bg-[#171717] text-[#ececec] font-semibold px-2 py-1 rounded border border-[#2f2f2f]">
-                  <Globe className="h-3 w-3 animate-pulse" />
-                  Qidirish
-                </span>
-              )}
+            {/* Core Input box wrapper */}
+            <div className="relative flex items-center rounded-2xl bg-[#2f2f2f] border border-[#3e3e3e] focus-within:border-[#676767] shadow-2xl transition-all">
               
+              {/* Attachment paperclip and image selection */}
               <button
-                type="submit"
-                disabled={(!inputText.trim() && !attachedFile) || isGenerating}
-                className={`p-2 rounded-xl transition-all ${
-                  (inputText.trim() || attachedFile) && !isGenerating
-                    ? "bg-white text-black hover:bg-gray-200 cursor-pointer"
-                    : "bg-[#212121] text-[#676767] pointer-events-none"
+                type="button"
+                onClick={triggerFileSelection}
+                className={`p-3 text-[#676767] hover:text-white hover:bg-[#212121]/50 rounded-l-2xl transition-colors cursor-pointer ${
+                  attachedFile ? "text-white" : ""
                 }`}
+                title="Rasm yoki fayl yuklash"
               >
-                <Send className="h-4 w-4" />
+                <Paperclip className="h-5 w-5" />
               </button>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.json,.xml,.js,.ts,.py,.rs,.cpp,.html,.css"
+                className="hidden"
+              />
+
+              {/* Input field */}
+              <textarea
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  session.messages.length === 0 
+                    ? "Suhbatni boshlash va fayllarni tahlil qilish uchun yozing..." 
+                    : "Menga o'xshab istalgan narsani so'rang yoki fayl yuklang..."
+                }
+                rows={1}
+                className="w-full bg-transparent text-sm py-4 px-2 pr-16 max-h-36 resize-none overflow-y-auto focus:outline-none text-[#ececec] placeholder-[#676767] font-sans"
+                style={{ minHeight: "24px" }}
+              />
+
+              {/* Send button interaction */}
+              <div className="absolute right-3 bottom-2.5 flex items-center gap-1.5 shrink-0">
+                {session.searchGroundingEnabled && (
+                  <span className="flex items-center gap-1 text-[9px] bg-[#171717] text-[#ececec] font-semibold px-2 py-1 rounded border border-[#2f2f2f]">
+                    <Globe className="h-3 w-3 animate-pulse" />
+                    Qidirish
+                  </span>
+                )}
+                
+                <button
+                  type="submit"
+                  disabled={(!inputText.trim() && !attachedFile) || isGenerating}
+                  className={`p-2 rounded-xl transition-all ${
+                    (inputText.trim() || attachedFile) && !isGenerating
+                      ? "bg-white text-black hover:bg-gray-200 cursor-pointer"
+                      : "bg-[#212121] text-[#676767] pointer-events-none"
+                  }`}
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-          </div>
-          
-          {/* Subtext info panel */}
-          <div className="text-center mt-3">
-            <p className="text-[10px] text-[#676767]">VeloxAi xatolar qilishi mumkin. Muhim faktlarni tekshirib oling.</p>
-          </div>
-        </form>
+            
+            {/* Subtext info panel */}
+            <div className="text-center mt-3">
+              <p className="text-[10px] text-[#676767]">VeloxAi xatolar qilishi mumkin. Muhim faktlarni tekshirib oling.</p>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );

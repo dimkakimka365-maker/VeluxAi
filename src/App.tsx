@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Menu, Bot, Sparkles, MessageSquare, Plus } from "lucide-react";
+import { Menu, Bot, Sparkles, MessageSquare, Plus, Clock } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import ChatWindow from "./components/ChatWindow";
 import PremiumModal from "./components/PremiumModal";
@@ -38,11 +38,21 @@ export default function App() {
   }, []);
   const [error, setError] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number>(10800); // 3 hours default (3 * 3600)
-  const [isPremium, setIsPremium] = useState<boolean>(true);
+  const [isPremium, setIsPremium] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("velox_is_premium");
+      return saved === "true"; // defaults to false for ordinary users as requested!
+    } catch (_) {
+      return false;
+    }
+  });
   const [premiumModalOpen, setPremiumModalOpen] = useState(false);
 
   const handleActivatePremium = () => {
     setIsPremium(true);
+    try {
+      localStorage.setItem("velox_is_premium", "true");
+    } catch (_) {}
   };
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(() => {
@@ -125,6 +135,7 @@ export default function App() {
     setUserProfile(null);
     try {
       localStorage.removeItem("velox_user_profile");
+      localStorage.removeItem("velox_is_premium"); // Clear on logout for beautiful demonstration testing!
     } catch (_) {}
 
     const client = getSupabase();
@@ -412,6 +423,11 @@ export default function App() {
 
   // Core function: Send user message and stream back AI response
   const handleSendMessage = async (text: string, image?: string, attachmentName?: string) => {
+    if (!isPremium && secondsLeft <= 0) {
+      setPremiumModalOpen(true);
+      setError("Bugungi 3 soatlik tekin foydalanish limitingiz tugadi. Davom etish uchun premium rejimni faollashtiring!");
+      return;
+    }
     if (!activeSessionId || isGenerating) return;
 
     const currentSession = sessions.find((s) => s.id === activeSessionId);
@@ -488,7 +504,18 @@ export default function App() {
         "Muhim qoidalar:\n" +
         "1. {prompt} qismini HAR DOIM ingliz tilida, juda batafsil, badiiy va teshakor qilib tasvirlang (masalan, foydalanuvchi 'yashil olma' desa, promptga 'fresh green apple on a wooden table, soft light, studio lighting, hyperrealistic, 8k resolution' deb yozing).\n" +
         "2. {prompt} ichidagi barcha bo'sh joylar (spaces) o'rniga faqat '%20' belgisini ishlating (masalan: fresh%20green%20apple).\n" +
-        "3. Hech qachon 'men rasm chiza olmayman' ko'rinishida rad etmang! Har doim mukammal inglizcha prompt yaratib, havola orqali rasm taqdim eting.";
+        "3. Hech qachon 'men rasm chiza olmayman' ko'rinishida rad etmang! Har doim mukammal inglizcha prompt yaratib, havola orqali rasm taqdim eting.\n\n" +
+        "CRITICAL 3D VIDEO CAPABILITY: Foydalanuvchi sizdan 3D model, 3D video, 3D animatsiya yaratishni yoki yasashni so'raganda (masalan, 'kosmik kema 3d videosini yasash', 'tilla uzuk 3d modeli', '3d video', '3d model', '3d animatsiya' kabi so'rovlar bo'lsa), siz ularga javobingizda albatta maxsus 3D video generator kod blokini taqdim etishingiz kerak. " +
+        "Ushbu kod blokini quyidagi formatda yozing (hech qachon o'zgartirmang):\n" +
+        "```3d-video\n" +
+        "{\n" +
+        "  \"prompt\": \"prompt of the 3d model in English (e.g., futuristic spaceship with neon plasma thrusters)\",\n" +
+        "  \"modelType\": \"spaceship\" | \"car\" | \"ring\" | \"planet\" | \"crystal\" | \"dna\",\n" +
+        "  \"title\": \"3D Model nomi o'zbek tilida (masalan: Kelajak Kosmik Kemasi)\"\n" +
+        "}\n" +
+        "```\n" +
+        "Obyekt tiplari: 'spaceship' (kosmik kema), 'car' (mashina), 'ring' (tilla uzuk), 'planet' (Saturn sayyorasi), 'crystal' (zumrad billur), 'dna' (DNK spiral zanjiri). " +
+        "Ushbu kod blokidan so'ng foydalanuvchiga 3D studiyada kinematik kamerani aylantirish, sifat va FPS kadrlar sonini sozlash va videoni MP4 formatida yuklab olish imkoniyatlari haqida o'zbek tilida qisqacha ma'lumot bering. Hech qachon 'men 3d qila olmayman' deb rad etmang!";
 
       // Send requests upstream to Express server
       const response = await fetch("/api/chat", {
@@ -696,10 +723,17 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-[11px] font-bold text-emerald-400 border border-emerald-500/20 shadow-sm">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Cheksiz Tekin Rejim ✓
-            </span>
+            {isPremium ? (
+              <span className="flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-[11px] font-bold text-amber-400 border border-amber-500/20 shadow-sm animate-pulse">
+                <Sparkles className="h-3 w-3 fill-amber-400/20 text-amber-400" />
+                Premium Tarif • Cheksiz ✓
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 rounded-full bg-blue-500/10 px-3 py-1 text-[11px] font-bold text-blue-400 border border-blue-500/20 shadow-sm">
+                <Clock className="h-3 w-3 text-blue-400 animate-pulse" />
+                Oddiy Tarif • {Math.floor(secondsLeft / 3600)}:{Math.floor((secondsLeft % 3600) / 60).toString().padStart(2, "0")}:{Math.floor(secondsLeft % 60).toString().padStart(2, "0")} qoldi
+              </span>
+            )}
             <span className="hidden sm:flex items-center gap-1.5 rounded-full bg-[#171717] px-2.5 py-1 text-[11px] font-medium text-[#ececec] border border-[#2f2f2f]">
               <Sparkles className="h-3 w-3" />
               Gemini 2.5 Active
@@ -716,6 +750,7 @@ export default function App() {
           error={error}
           isPremium={isPremium}
           onOpenPremium={() => setPremiumModalOpen(true)}
+          secondsLeft={secondsLeft}
         />
       </div>
 

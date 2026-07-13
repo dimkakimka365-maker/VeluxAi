@@ -268,15 +268,40 @@ export default function Sidebar({
           )}
         </div>
 
-        {/* Velox AI Free Status Banner */}
+        {/* Velox AI Subscription Status Banner */}
         <div className="p-3 border-t border-[#2f2f2f] bg-[#171717]">
-          <div className="rounded-lg bg-[#212121]/30 p-3.5 border border-[#2f2f2f] flex items-center gap-3">
-            <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-            <div className="leading-tight">
-              <span className="block text-xs font-semibold text-white">Xizmat To'liq Yoqilgan</span>
-              <span className="text-[10px] text-[#8e8e8e]">Cheksiz aqlli muloqot • Tekin</span>
+          {isPremium ? (
+            <div className="rounded-lg bg-gradient-to-r from-amber-500/15 via-yellow-500/5 to-[#171717] p-3.5 border border-amber-500/30 flex items-center gap-3">
+              <Sparkles className="h-4.5 w-4.5 text-amber-400 shrink-0 fill-amber-400/20" />
+              <div className="leading-tight min-w-0 flex-1">
+                <span className="block text-xs font-semibold text-amber-400 font-display">Premium Tarif Faol</span>
+                <span className="text-[10px] text-[#b4b4b4] block truncate">Cheksiz muloqot va vaqt</span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="rounded-lg bg-[#212121]/40 p-3 border border-[#2f2f2f] space-y-2">
+              <div className="flex items-center gap-2.5">
+                <Clock className="h-4 w-4 text-slate-400 shrink-0 animate-pulse" />
+                <div className="leading-tight min-w-0 flex-1">
+                  <span className="block text-xs font-semibold text-white font-display">Oddiy Tarif (Free)</span>
+                  <p className="text-[10px] font-mono text-amber-400 font-medium tracking-wide">
+                    {secondsLeft > 0 ? (
+                      `${Math.floor(secondsLeft / 3600)} soat ${Math.floor((secondsLeft % 3600) / 60)} daqiqa qoldi`
+                    ) : (
+                      "Bugungi limit tugadi ⏱️"
+                    )}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={onOpenPremium}
+                className="w-full text-center py-2 px-2.5 rounded-lg bg-amber-500 text-black hover:bg-amber-600 active:scale-97 text-xs font-bold font-display transition-all cursor-pointer flex items-center justify-center gap-1 shadow-sm"
+              >
+                <span>Premiumga o'tish</span>
+                <span className="text-[9.5px] font-extrabold opacity-95">($3/oy)</span>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Google Search Grounding toggle */}

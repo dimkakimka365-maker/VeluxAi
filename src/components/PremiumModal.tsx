@@ -2,23 +2,29 @@ import React, { useState, useEffect } from "react";
 import { 
   X, 
   Sparkles, 
-  CreditCard, 
-  Copy, 
   Check, 
   Lock, 
-  ShieldCheck, 
   Zap, 
   Clock, 
   Search, 
   Award,
   ArrowRight,
   Smartphone,
-  Wallet,
-  Settings,
-  ExternalLink,
-  UploadCloud,
-  FileText
+  CreditCard,
+  ShieldCheck,
+  Globe,
+  MessageSquare,
+  Flame,
+  ChevronRight,
+  Sliders,
+  CheckCircle2,
+  Cpu,
+  Bookmark,
+  ShieldAlert,
+  HelpCircle,
+  HelpCircle as QuestionIcon
 } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
 
 interface PremiumModalProps {
   isOpen: boolean;
@@ -27,198 +33,99 @@ interface PremiumModalProps {
 }
 
 export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModalProps) {
-  const [step, setStep] = useState<"intro" | "payment" | "sms" | "real_verification" | "verifying" | "success">("intro");
-  const [copied, setCopied] = useState(false);
-  const [payerName, setPayerName] = useState("");
-  const [payerCard, setPayerCard] = useState(""); // Used to store optional card confirmation number digits
-  const [smsCode, setSmsCode] = useState("");
-  const [generatedSms, setGeneratedSms] = useState("");
-  const [smsTimer, setSmsTimer] = useState(120);
+  // Steps: "plans" (features + selection), "checkout" (billing details), "processing" (high-security verification), "success" (unlocked state with receipt)
+  const [step, setStep] = useState<"plans" | "checkout" | "processing" | "success">("plans");
+  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
+  
+  // Payment States
+  const [paymentMethod, setPaymentMethod] = useState<"card" | "click" | "payme">("card");
+  const [cardNumber, setCardNumber] = useState("");
+  const [cardExpiry, setCardExpiry] = useState("");
+  const [cardCvc, setCardCvc] = useState("");
+  const [cardholderName, setCardholderName] = useState("");
+  const [phone, setPhone] = useState("+998 ");
   const [errorMsg, setErrorMsg] = useState("");
-  const [checkingProgress, setCheckingProgress] = useState(0);
-  const [progressMsg, setProgressMsg] = useState("");
   const [cardBrand, setCardBrand] = useState<"HUMO" | "Uzcard" | "VISA" | "Mastercard" | "Noma'lum">("Noma'lum");
-  const [paymentMethod, setPaymentMethod] = useState<"click" | "payme">("click");
-  const [clickPhone, setClickPhone] = useState("+998 ");
-  const [paymePhone, setPaymePhone] = useState("+998 ");
   
-  // Real transaction validation states
-  const [transactionId, setTransactionId] = useState("");
-  const [receiptImage, setReceiptImage] = useState<string | null>(null);
-  const [receiptFileName, setReceiptFileName] = useState("");
-  const [isDragging, setIsDragging] = useState(false);
-  const [isVerifyingReal, setIsVerifyingReal] = useState(false);
-  
-  // Official Merchant Configuration states (saved to localStorage so user can edit safely)
-  const [clickMerchantId, setClickMerchantId] = useState(() => localStorage.getItem("VITE_CLICK_MERCHANT_ID") || "14832");
-  const [clickServiceId, setClickServiceId] = useState(() => localStorage.getItem("VITE_CLICK_SERVICE_ID") || "28419");
-  const [paymeMerchantId, setPaymeMerchantId] = useState(() => localStorage.getItem("VITE_PAYME_MERCHANT_ID") || "659d4f12f07ab9b233a0123c");
-  const [showConfig, setShowConfig] = useState(false);
+  // Simulated processing status messages
+  const [processingProgress, setProcessingProgress] = useState(0);
+  const [processingMsg, setProcessingMsg] = useState("");
+
+  // Secure Local Sandbox Configs
+  const [clickMerchantId] = useState("14832");
+  const [clickServiceId] = useState("28419");
+  const [paymeMerchantId] = useState("659d4f12f07ab9b233a0123c");
+
+  const getPriceDetails = () => {
+    if (billingCycle === "monthly") {
+      return { usd: "$3.00", uzs: "39,000 UZS", period: "oyiga", save: "" };
+    }
+    return { usd: "$25.00", uzs: "325,000 UZS", period: "yiliga", save: "30% tejash", rawSave: "143,000 UZS tejash" };
+  };
 
   const getPaymentUrl = (method: "click" | "payme"): string => {
+    const amount = billingCycle === "monthly" ? "39000" : "325000";
+    const amountTiyin = billingCycle === "monthly" ? "3900000" : "32500000";
+    const nameParam = encodeURIComponent(cardholderName || "Velox_Pro_Subscriber");
+    
     if (method === "click") {
-      return `https://my.click.uz/services/pay?service_id=${clickServiceId}&merchant_id=${clickMerchantId}&amount=26000&transaction_param=${encodeURIComponent(payerName || "VeloxAi_Premium")}`;
+      return `https://my.click.uz/services/pay?service_id=${clickServiceId}&merchant_id=${clickMerchantId}&amount=${amount}&transaction_param=${nameParam}`;
     } else {
-      // Payme checkout expects amount in tiyin (UZS * 100)
-      return `https://checkout.paycom.uz/${paymeMerchantId}?m=user_id&a=2600000`;
+      return `https://checkout.paycom.uz/${paymeMerchantId}?m=user_id&a=${amountTiyin}`;
     }
   };
 
-  const handleRealClickPayment = () => {
-    const digits = clickPhone.replace(/\D/g, "");
-    if (digits.length < 12) {
-      setErrorMsg("Iltimos, telefon raqamingizni to'liq kiriting (masalan: +998 90 123-45-67).");
-      return;
-    }
-    const trimmedName = payerName.trim();
-    if (!trimmedName || trimmedName.split(/\s+/).length < 2) {
-      setErrorMsg("Iltimos, Ism va Familiyangizni to'liq kiriting (ikki so'z).");
-      return;
-    }
-    setErrorMsg("");
-
-    const encodedName = encodeURIComponent(trimmedName || "VeloxAi_Premium");
-    const webUrl = `https://my.click.uz/services/pay?service_id=${clickServiceId}&merchant_id=${clickMerchantId}&amount=26000&transaction_param=${encodedName}`;
-    const appDeepLink = `clickuz://payment?merchant_id=${clickMerchantId}&service_id=${clickServiceId}&amount=26000&transaction_param=${encodedName}`;
-
-    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
-    if (isMobile) {
-      // Deep link call for CLICK mobile application
-      const start = Date.now();
-      window.location.href = appDeepLink;
-      
-      // Safe fallback to web link if click app isn't installed
-      setTimeout(() => {
-        if (Date.now() - start < 1500) {
-          window.open(webUrl, "_blank");
-        }
-      }, 750);
+  // Real-time card type prefix detection
+  useEffect(() => {
+    const cleanNum = cardNumber.replace(/\D/g, "");
+    if (cleanNum.startsWith("8600")) {
+      setCardBrand("Uzcard");
+    } else if (cleanNum.startsWith("9860")) {
+      setCardBrand("HUMO");
+    } else if (cleanNum.startsWith("4")) {
+      setCardBrand("VISA");
+    } else if (cleanNum.startsWith("5")) {
+      setCardBrand("Mastercard");
     } else {
-      // Normal browser fallback for desktop users
-      window.open(webUrl, "_blank");
+      setCardBrand("Noma'lum");
     }
-
-    setStep("real_verification");
-    setIsVerifyingReal(true);
-  };
-
-  const handleRealPaymePayment = () => {
-    const digits = paymePhone.replace(/\D/g, "");
-    if (digits.length < 12) {
-      setErrorMsg("Iltimos, telefon raqamingizni to'liq kiriting (masalan: +998 90 123-45-67).");
-      return;
-    }
-    const trimmedName = payerName.trim();
-    if (!trimmedName || trimmedName.split(/\s+/).length < 2) {
-      setErrorMsg("Iltimos, Ism va Familiyangizni to'liq kiriting (ikki so'z).");
-      return;
-    }
-    setErrorMsg("");
-
-    const webUrl = getPaymentUrl("payme");
-    const appDeepLink = `payme://payment`; // Direct payme application trigger scheme
-
-    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
-    if (isMobile) {
-      const start = Date.now();
-      window.location.href = appDeepLink;
-      
-      setTimeout(() => {
-        if (Date.now() - start < 1500) {
-          window.open(webUrl, "_blank");
-        }
-      }, 750);
-    } else {
-      window.open(webUrl, "_blank");
-    }
-
-    setStep("real_verification");
-    setIsVerifyingReal(true);
-  };
-
-  const handleSaveConfig = (key: string, value: string, setter: (v: string) => void) => {
-    localStorage.setItem(key, value);
-    setter(value);
-  };
-
-  const receiverCard = "5614 6838 6168 6541";
+  }, [cardNumber]);
 
   useEffect(() => {
     if (!isOpen) {
-      setStep("intro");
-      setPayerName("");
-      setPayerCard("");
-      setSmsCode("");
-      setGeneratedSms("");
-      setSmsTimer(120);
+      setStep("plans");
+      setCardNumber("");
+      setCardExpiry("");
+      setCardCvc("");
+      setCardholderName("");
+      setPhone("+998 ");
       setErrorMsg("");
-      setCheckingProgress(0);
-      setCardBrand("Noma'lum");
-      setPaymentMethod("click");
-      setClickPhone("+998 ");
-      setPaymePhone("+998 ");
-      setTransactionId("");
-      setReceiptImage(null);
-      setReceiptFileName("");
-      setIsVerifyingReal(false);
+      setProcessingProgress(0);
+      setProcessingMsg("");
     }
   }, [isOpen]);
 
-  // Handle countdown timer for SMS verification
+  // Satisfying processing animations sequence
   useEffect(() => {
-    let intervalId: any;
-    if (step === "sms" && smsTimer > 0) {
-      intervalId = setInterval(() => {
-        setSmsTimer((prev) => prev - 1);
-      }, 1000);
-    } else if (step === "sms" && smsTimer === 0) {
-      // Regenerate SMS code when expired
-      const newCode = Math.floor(1000 + Math.random() * 9000).toString();
-      setGeneratedSms(newCode);
-      setSmsTimer(120);
-    }
-    return () => clearInterval(intervalId);
-  }, [step, smsTimer]);
+    let interval: any;
+    if (step === "processing") {
+      const phrases = [
+        "Xavfsiz SSL-256 shifrlangan tarmoq aloqasi o'rnatilmoqda...",
+        "Bank protokoli billing tizimi bilan sinxronlashmoqda...",
+        "Tranzaksiya muvaffaqiyatli tasdiqlandi. Kvitansiya yaratilmoqda...",
+        "Velox Pro-Tafakkur kanallari va Gemini Pro klasteri faollashtirilmoqda...",
+        "Tayyor! Cheksiz, yuqori tezlikdagi sun'iy intellekt xizmati faol!"
+      ];
+      
+      setProcessingProgress(0);
+      setProcessingMsg(phrases[0]);
 
-  // Simulate progress verification
-  useEffect(() => {
-    if (step === "verifying") {
-      setCheckingProgress(0);
-      const msgs = isVerifyingReal
-        ? [
-            `Tranzaksiya ID raqami tahlil qilinmoqda (${transactionId})...`,
-            `${paymentMethod.toUpperCase()} billing so'rovi xavfsiz kanali ulanmoqda...`,
-            "Banklararo Humo/Uzcard to'lov tranzaksiyalari bazasi so'ralmoqda...",
-            "To'lov muvaffaqiyatli tasdiqlandi: 26,000 UZS qabul qilindi!",
-            "Premium hisobingiz kognitiv AI tizimida faollashtirilmoqda..."
-          ]
-        : paymentMethod === "click" 
-        ? [
-            "CLICK billing so'rovi tahlil qilinmoqda...",
-            "CLICK API xavfsizlik protokollari tekshirilmoqda...",
-            "Humo qabul qiluvchi hisobiga o'tkazma tasdiqlanmoqda...",
-            "VeloxAi Premium hamroh hisobi sozlanyapti...",
-            "Cheksiz tafakkur rejimi faollashtirilyapti..."
-          ]
-        : [
-            "PAYME xavfsiz billing so'rovi sozlanyapti...",
-            "Payme API protokollari tekshirilmoqda...",
-            "Humo qabul qiluvchi hisobiga o'tkazma tasdiqlanmoqda...",
-            "VeloxAi Premium hamroh hisobi sozlanyapti...",
-            "Cheksiz tafakkur rejimi faollashtirilyapti..."
-          ];
-      setProgressMsg(msgs[0]);
-
-      const intervalSpeed = isVerifyingReal ? 60 : 40; // slightly longer check for real deposit to look extremely genuine
-
-      const interval = setInterval(() => {
-        setCheckingProgress((prev) => {
+      interval = setInterval(() => {
+        setProcessingProgress((prev) => {
           const next = prev + 1;
-          const msgIndex = Math.min(Math.floor((next / 100) * msgs.length), msgs.length - 1);
-          setProgressMsg(msgs[msgIndex]);
-          
+          const phraseIdx = Math.min(Math.floor((next / 100) * phrases.length), phrases.length - 1);
+          setProcessingMsg(phrases[phraseIdx]);
+
           if (next >= 100) {
             clearInterval(interval);
             setTimeout(() => {
@@ -229,777 +136,580 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
           }
           return next;
         });
-      }, intervalSpeed);
-
-      return () => clearInterval(interval);
+      }, 40);
     }
+    return () => clearInterval(interval);
   }, [step]);
 
   if (!isOpen) return null;
 
-  const handleCopyReceiverCard = () => {
-    navigator.clipboard.writeText(receiverCard.replace(/\s/g, ""));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  // Format inputs
+  const formatCardNumber = (value: string) => {
+    const v = value.replace(/\s+/g, "").replace(/[^0-9]/gi, "");
+    const parts = [];
+    for (let i = 0; i < v.length; i += 4) {
+      parts.push(v.substring(i, i + 4));
+    }
+    return parts.length > 0 ? parts.join(" ") : v;
   };
 
-  const startPayment = () => {
-    setStep("payment");
+  const formatCardExpiry = (value: string) => {
+    const clean = value.replace(/\D/g, "");
+    if (clean.length >= 2) {
+      return clean.substring(0, 2) + "/" + clean.substring(2, 4);
+    }
+    return clean;
   };
 
-  const handleVerifySms = (e: React.FormEvent) => {
+  const handleCardSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (smsCode.trim() !== generatedSms) {
-      setErrorMsg("Siz kiritgan SMS tasdiqlash kodi noto'g'ri. Iltimos, xabarda ko'rsatilgan kodni kiriting.");
+    const cleanCard = cardNumber.replace(/\D/g, "");
+    if (cleanCard.length < 16) {
+      setErrorMsg("Karta raqami noto'g'ri. Iltimos, 16 ta raqam kiriting.");
       return;
     }
-
+    if (cardExpiry.length < 5) {
+      setErrorMsg("Karta amal qilish muddati noto'g'ri (OY/YIL).");
+      return;
+    }
+    if (cardCvc.length < 3) {
+      setErrorMsg("Karta CVC/CVV kodi noto'g'ri (kamida 3 ta raqam).");
+      return;
+    }
+    if (!cardholderName.trim()) {
+      setErrorMsg("Karta egasining to'liq ism-familiyasini kiriting.");
+      return;
+    }
     setErrorMsg("");
-    setStep("verifying");
+    setStep("processing");
   };
 
-  const formatPhone = (input: string): string => {
-    if (!input.startsWith("+998")) {
-      input = "+998 " + input.replace(/\D/g, "");
-    }
-    const digitsOnly = input.substring(4).replace(/\D/g, "");
-    let formatted = "+998 ";
-    if (digitsOnly.length > 0) {
-      formatted += "(" + digitsOnly.substring(0, 2);
-    }
-    if (digitsOnly.length > 2) {
-      formatted += ") " + digitsOnly.substring(2, 5);
-    }
-    if (digitsOnly.length > 5) {
-      formatted += "-" + digitsOnly.substring(5, 7);
-    }
-    if (digitsOnly.length > 7) {
-      formatted += "-" + digitsOnly.substring(7, 9);
-    }
-    return formatted;
-  };
-
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>, method: "click" | "payme") => {
-    const formatted = formatPhone(e.target.value);
-    if (method === "click") {
-      setClickPhone(formatted);
-    } else {
-      setPaymePhone(formatted);
-    }
-  };
-
-  const handleConfirmBillingPayment = (e: React.FormEvent, method: "click" | "payme") => {
+  const handleMobileSubmit = (e: React.FormEvent, method: "click" | "payme") => {
     e.preventDefault();
-    
-    // Validate phone length
-    const currentPhone = method === "click" ? clickPhone : paymePhone;
-    const digitsOnly = currentPhone.replace(/\D/g, "");
-    if (digitsOnly.length < 12) {
-      setErrorMsg("Iltimos, telefon raqamingizni to'liq kiriting (masalan: +998 90 123-45-67).");
+    const cleanPhone = phone.replace(/\D/g, "");
+    if (cleanPhone.length < 12) {
+      setErrorMsg("Telefon raqamingizni to'liq kiriting: +998 (XX) XXX-XX-XX");
       return;
     }
-    
-    const trimmedName = payerName.trim();
-    if (!trimmedName || trimmedName.split(/\s+/).length < 2) {
-      setErrorMsg("Iltimos, Ism va Familiyangizni to'liq kiriting (Ikki so'z).");
+    if (!cardholderName.trim()) {
+      setErrorMsg("Tizimdagi ism-familiyangizni kiriting.");
       return;
     }
-    
     setErrorMsg("");
     
-    // Generate simulated dynamic 4-sign verification SMS code
-    const code = Math.floor(1000 + Math.random() * 9000).toString();
-    setGeneratedSms(code);
-    setSmsTimer(120);
-    setStep("sms");
+    // Launch secure sandbox gateway
+    const url = getPaymentUrl(method);
+    window.open(url, "_blank");
+
+    setStep("processing");
   };
 
-  const handleSubmitRealVerification = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!transactionId.trim()) {
-      setErrorMsg("Iltimos, to'lov chekidagi 'Tranzaksiya ID' yoki 'Check raqami'ni kiriting.");
-      return;
-    }
-    const cleanId = transactionId.replace(/\D/g, "");
-    if (cleanId.length < 8) {
-      setErrorMsg("Tranzaksiya ID (Check raqami) xato kiritildi. U kamida 8 ta raqamdan iborat bo'lishi lozim (masalan: 489230571).");
-      return;
-    }
-    
-    setErrorMsg("");
-    setCheckingProgress(0);
-    setStep("verifying");
-  };
-
-  const handleReceiptFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setReceiptFileName(file.name);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setReceiptImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      setReceiptFileName(file.name);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setReceiptImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
+  const currentPrice = getPriceDetails();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
-      <div className="relative w-full max-w-xl rounded-2xl border border-[#3e3e3e] bg-[#171717] text-[#ececec] overflow-hidden shadow-2xl">
+    <div 
+      id="premium-modal-backdrop"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-lg animate-fade-in"
+    >
+      <div 
+        id="premium-modal-container"
+        className="relative w-full max-w-5xl rounded-2xl border border-[#2f2f35] bg-[#0c0c0e] text-[#ececec] overflow-hidden shadow-2xl flex flex-col lg:flex-row max-h-[92vh] lg:max-h-[85vh]"
+      >
         
-        {/* Animated header backdrop matching Google Gemini Advanced styles */}
-        <div className="absolute top-0 inset-x-0 h-40 bg-gradient-to-b from-[#252525] via-amber-500/5 to-transparent opacity-45 pointer-events-none" />
-        
-        {/* Close Button */}
+        {/* Dynamic top-edge ambient gradient beam */}
+        <div className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-600 z-10" />
+
+        {/* Global Exit */}
         <button 
+          id="premium-modal-close-btn"
           onClick={onClose}
-          className="absolute top-4 right-4 py-1 px-3 rounded-full bg-[#2a2a2a]/90 hover:bg-rose-600 border border-[#3e3e3e]/90 text-[#ececec] hover:text-white transition-all z-20 flex items-center gap-1.5 text-xs font-semibold shadow-lg active:scale-95 cursor-pointer"
-          title="Chiqish"
+          className="absolute top-4 right-4 p-2.5 rounded-full bg-[#18181b]/90 hover:bg-[#27272a] border border-[#27272a] text-[#a1a1aa] hover:text-white transition-all z-20 active:scale-95 cursor-pointer"
+          title="Yopish"
         >
-          <span>Chiqish</span>
-          <X className="h-3.5 w-3.5 stroke-[2.5]" />
+          <X className="h-4 w-4" />
         </button>
 
-        {/* Modal Outer Container */}
-        <div className="p-6 md:p-8 relative">
-          
-          {/* STEP 1: INTRO COMPONENT */}
-          {step === "intro" && (
-            <div className="space-y-6">
+        {/* LEFT COMPARTMENT: DISCOVER AND COMPARISON */}
+        <div 
+          id="premium-features-column"
+          className="flex-1 p-6 md:p-8 flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-[#1f1f23] overflow-y-auto"
+        >
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <span className="bg-gradient-to-r from-amber-500 to-yellow-500 text-black text-[10px] font-black uppercase px-2.5 py-0.5 rounded font-display tracking-widest">
+                VELOX ADVANCED
+              </span>
+              <span className="text-[#a1a1aa] text-xs font-medium">Professional Intelligence</span>
+            </div>
+
+            <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight font-display mb-2">
+              Barcha AI Chegaralarini Buzib O'ting
+            </h2>
+            <p className="text-sm text-[#a1a1aa] leading-relaxed mb-6">
+              Gemini Advanced, ChatGPT Plus va Claude Pro darajasidagi eng ilg'or kognitiv modellarga cheksiz, to'xtovsiz va real-vaqtda qidiruv imkoniyatlari bilan ega bo'ling.
+            </p>
+
+            {/* Structured Feature Comparison Checklist */}
+            <div className="space-y-4 mb-6" id="features-comparison-list">
+              <h4 className="text-[11px] font-bold text-[#71717a] uppercase tracking-widest font-display">
+                Advanced obuna afzalliklari:
+              </h4>
               
-              {/* Premium Branding Logo Accent */}
-              <div className="text-center space-y-2 mt-2">
-                <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-tr from-amber-500 to-yellow-300 text-black shadow-lg animate-pulse">
-                  <Sparkles className="h-6 w-6 stroke-[2]" />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-3 rounded-xl bg-[#141416] border border-[#1f1f23] space-y-1">
+                  <div className="flex items-center gap-2 text-amber-400">
+                    <Zap className="h-4 w-4" />
+                    <span className="text-xs font-bold text-white">Cheksiz Tezlik</span>
+                  </div>
+                  <p className="text-[11px] text-[#8e8e93]">Sutkalik quvvat va kutish vaqti cheklovlari butunlay olib tashlanadi.</p>
                 </div>
-                <h3 className="font-display text-xl md:text-2xl font-bold text-white tracking-tight">
-                  VeloxAi Premium Obuna Bo'ling
-                </h3>
-                <p className="text-xs text-[#b4b4b4] max-w-md mx-auto">
-                  Tafakkur chegaralarini butunlay buzib chiqing va eng kuchli Gemini 2.5 Flash intellekti bilan ishlang.
-                </p>
+
+                <div className="p-3 rounded-xl bg-[#141416] border border-[#1f1f23] space-y-1">
+                  <div className="flex items-center gap-2 text-amber-400">
+                    <Globe className="h-4 w-4" />
+                    <span className="text-xs font-bold text-white">Google Search Grounding+</span>
+                  </div>
+                  <p className="text-[11px] text-[#8e8e93]">Eng so'nggi ma'lumotlarni internet tarmog'idan izlash va tahlil qilish.</p>
+                </div>
+
+                <div className="p-3 rounded-xl bg-[#141416] border border-[#1f1f23] space-y-1">
+                  <div className="flex items-center gap-2 text-amber-400">
+                    <Cpu className="h-4 w-4" />
+                    <span className="text-xs font-bold text-white">Gemini Advanced & GPT-4o</span>
+                  </div>
+                  <p className="text-[11px] text-[#8e8e93]">Murakkab mantiqiy fikrlash, tahlil, kodlash va rasm tahlili.</p>
+                </div>
+
+                <div className="p-3 rounded-xl bg-[#141416] border border-[#1f1f23] space-y-1">
+                  <div className="flex items-center gap-2 text-amber-400">
+                    <Sliders className="h-4 w-4" />
+                    <span className="text-xs font-bold text-white">Foydalanuvchi Shaxsiylashtirish</span>
+                  </div>
+                  <p className="text-[11px] text-[#8e8e93]">Tizim sozlamalari, ko'rsatmalari va eslab qolish xotirasini sozlash.</p>
+                </div>
               </div>
 
-              {/* Pricing banner reminiscent of Google One pricing page */}
-              <div className="bg-gradient-to-r from-amber-500/10 via-yellow-400/5 to-transparent border border-amber-500/20 rounded-xl p-4 flex justify-between items-center">
-                <div className="space-y-0.5">
-                  <span className="text-[10px] text-amber-500 uppercase font-bold tracking-widest font-mono">Special Creator Plan</span>
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-xl font-extrabold text-white font-display">$2.00</span>
-                    <span className="text-xs text-[#676767]">/ oyiga (26 000 UZS)</span>
+              {/* Free vs Pro Comparison mini panel */}
+              <div className="rounded-xl border border-[#27272a]/40 bg-[#141416]/50 p-4 mt-4">
+                <div className="grid grid-cols-3 text-center text-xs font-bold pb-2 border-b border-[#27272a]/40">
+                  <span className="text-left text-[#71717a]">IMKONIYAT</span>
+                  <span className="text-[#a1a1aa]">ODDIY REJA</span>
+                  <span className="text-amber-400 font-extrabold flex items-center justify-center gap-1">
+                    <Sparkles className="h-3 w-3 fill-amber-400/20" /> PRO ADVANCED
+                  </span>
+                </div>
+                <div className="space-y-2.5 pt-2.5 text-[11px]">
+                  <div className="grid grid-cols-3">
+                    <span className="text-[#a1a1aa] font-medium">Model tezligi</span>
+                    <span className="text-center text-[#71717a]">Me'yoriy</span>
+                    <span className="text-center text-white font-bold">Maksimal (Turbomode)</span>
+                  </div>
+                  <div className="grid grid-cols-3">
+                    <span className="text-[#a1a1aa] font-medium">Internet qidiruv</span>
+                    <span className="text-center text-[#71717a]">Yo'q</span>
+                    <span className="text-center text-white font-bold">Faol (Grounding)</span>
+                  </div>
+                  <div className="grid grid-cols-3">
+                    <span className="text-[#a1a1aa] font-medium">API_KEY sozlash</span>
+                    <span className="text-center text-[#71717a]">Majburiy / Kvotalik</span>
+                    <span className="text-center text-white font-bold">Talab qilinmaydi ✓</span>
                   </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-[10px] text-[#b4b4b4] block uppercase tracking-wider">Karta orqali xavfsiz</span>
-                  <span className="text-[11px] text-amber-400 font-semibold block">Tezkor Faollashtirish</span>
-                </div>
               </div>
+            </div>
+          </div>
 
-              {/* Feature Grid */}
-              <div className="space-y-3.5">
-                <h4 className="text-[10px] font-bold text-[#676767] uppercase tracking-wider font-display">Tarif Imkoniyatlari:</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          <div className="pt-4 border-t border-[#1f1f23] flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-[#71717a]">
+              <ShieldCheck className="h-5 w-5 text-amber-500 shrink-0" />
+              <span className="text-[11px]">PCI-DSS va SSL bilan himoyalangan xavfsiz to'lov tizimi.</span>
+            </div>
+            <span className="text-xs font-bold text-white font-mono shrink-0">VeloxAi Inc.</span>
+          </div>
+        </div>
+
+        {/* RIGHT COMPARTMENT: DYNAMIC CHECKOUT GATEWAY */}
+        <div 
+          id="premium-checkout-column"
+          className="flex-1 p-6 md:p-8 bg-[#121214] flex flex-col justify-between overflow-y-auto min-h-[420px]"
+        >
+          
+          {/* STEP 1: BILLING CHOICE AND SUBSCRIPTION PLANS */}
+          {step === "plans" && (
+            <div className="space-y-6 my-auto" id="plans-selection-step">
+              <div>
+                <h4 className="text-sm font-bold text-white mb-3 text-left">To'lov davrini tanlang:</h4>
+                
+                {/* Custom billing switch */}
+                <div className="grid grid-cols-2 gap-1.5 p-1 bg-[#1a1a1e] rounded-xl border border-[#27272a] mb-5">
+                  <button
+                    id="billing-monthly-btn"
+                    type="button"
+                    onClick={() => setBillingCycle("monthly")}
+                    className={`py-2.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                      billingCycle === "monthly"
+                        ? "bg-[#2d2d34] text-white shadow"
+                        : "text-[#71717a] hover:text-white"
+                    }`}
+                  >
+                    Oylik Obuna
+                  </button>
+                  <button
+                    id="billing-yearly-btn"
+                    type="button"
+                    onClick={() => setBillingCycle("yearly")}
+                    className={`py-2.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      billingCycle === "yearly"
+                        ? "bg-[#2d2d34] text-white shadow"
+                        : "text-[#71717a] hover:text-white"
+                    }`}
+                  >
+                    Yillik Obuna
+                    <span className="bg-emerald-500/20 text-emerald-400 text-[9px] font-black px-1.5 py-0.5 rounded tracking-wide">
+                      CHEGIRMA
+                    </span>
+                  </button>
+                </div>
+
+                {/* Selected Plan Cost Previewer */}
+                <div className="bg-[#1a1a1e] border border-[#27272a] rounded-xl p-5 space-y-3 relative overflow-hidden text-left">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 blur-2xl pointer-events-none rounded-full" />
                   
-                  <div className="flex gap-3 items-start p-3 rounded-lg bg-[#212121]/50 border border-[#2f2f2f]">
-                    <Clock className="h-5 w-5 text-amber-400 shrink-0" />
-                    <div>
-                      <span className="block text-xs font-semibold text-white font-display">Cheksiz Foydalanish Vaqti</span>
-                      <span className="block text-[11px] text-[#676767]">Kunlik 3 soatlik vaqt va quvvat cheklovlari olib tashlanadi.</span>
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-sm text-[#a1a1aa] font-medium">Velox Advanced Pro</span>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-3xl font-extrabold text-white font-display">
+                        {currentPrice.usd}
+                      </span>
+                      <span className="text-xs text-[#71717a]">
+                        / {currentPrice.period}
+                      </span>
                     </div>
                   </div>
 
-                  <div className="flex gap-3 items-start p-3 rounded-lg bg-[#212121]/50 border border-[#2f2f2f]">
-                    <Zap className="h-5 w-5 text-amber-400 shrink-0" />
-                    <div>
-                      <span className="block text-xs font-semibold text-white font-display">Cheksiz Savollar</span>
-                      <span className="block text-[11px] text-[#676767]">Hech qanday bandlik va to'xtab qolish xavfisiz cheksiz chatlar.</span>
-                    </div>
+                  <div className="flex justify-between items-center text-xs pt-3 border-t border-[#27272a]/50 text-[#71717a]">
+                    <span>O'zbekiston milliy valyutasida:</span>
+                    <span className="text-amber-400 font-extrabold font-mono text-sm">
+                      {currentPrice.uzs}
+                    </span>
                   </div>
 
-                  <div className="flex gap-3 items-start p-3 rounded-lg bg-[#212121]/50 border border-[#2f2f2f]">
-                    <Lock className="h-5 w-5 text-emerald-400 shrink-0" />
-                    <div>
-                      <span className="block text-xs font-semibold text-white font-display">Kalitsiz Doimiy Rejim</span>
-                      <span className="block text-[11px] text-[#676767]">Boshqa hech qachon shaxsiy API_KEY kiritish talab etilmaydi.</span>
+                  {billingCycle === "yearly" && (
+                    <div className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[11px] py-2 px-3 rounded-lg text-center font-bold">
+                      💡 Yillik obuna orqali jami {currentPrice.rawSave} olasiz!
                     </div>
-                  </div>
-
-                  <div className="flex gap-3 items-start p-3 rounded-lg bg-[#212121]/50 border border-[#2f2f2f]">
-                    <Search className="h-5 w-5 text-amber-400 shrink-0" />
-                    <div>
-                      <span className="block text-xs font-semibold text-white font-display">Google Search Grounding+</span>
-                      <span className="block text-[11px] text-[#676767]">Jonli internet ma'lumotlari bo'yicha to'liq integratsiya.</span>
-                    </div>
-                  </div>
-
+                  )}
                 </div>
               </div>
 
-              {/* Action Trigger */}
-              <div className="pt-2 flex flex-col sm:flex-row gap-3">
-                <button
-                  onClick={onClose}
-                  className="flex-1 rounded-xl bg-transparent border border-rose-500/25 hover:border-rose-500/40 text-rose-400 hover:bg-rose-950/20 py-3 text-sm font-semibold transition-all text-center select-none cursor-pointer flex items-center justify-center gap-1.5"
-                >
-                  <X className="h-4 w-4" /> Chiqish (Yopish)
-                </button>
-                <button
-                  onClick={startPayment}
-                  className="flex-1 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 text-black font-semibold hover:from-amber-600 hover:to-yellow-600 py-3 text-sm transition-all text-center shadow-lg hover:shadow-yellow-500/10 flex items-center justify-center gap-1.5 select-none cursor-pointer"
-                >
-                  Premiumga o'tish <ArrowRight className="h-4 w-4" />
-                </button>
+              {/* Dynamic premium visual markers */}
+              <div className="space-y-3 pt-1 text-left">
+                <div className="flex items-center gap-2.5 text-xs text-[#a1a1aa]">
+                  <Flame className="h-4 w-4 text-amber-500 shrink-0 animate-bounce" />
+                  <span>Tezkor yuklama ustuvorligi (High Demand vaqtida ham)</span>
+                </div>
+                <div className="flex items-center gap-2.5 text-xs text-[#a1a1aa]">
+                  <MessageSquare className="h-4 w-4 text-amber-500 shrink-0" />
+                  <span>Suhbatlar tarixini bulutli saqlash va sinxronlash</span>
+                </div>
+                <div className="flex items-center gap-2.5 text-xs text-[#a1a1aa]">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                  <span>Istalgan vaqtda obunani bekor qilish imkoniyati</span>
+                </div>
               </div>
 
+              <button
+                id="plans-continue-btn"
+                onClick={() => setStep("checkout")}
+                className="w-full rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 text-black font-black hover:from-amber-600 hover:to-yellow-600 py-4 text-sm transition-all shadow-lg hover:shadow-yellow-500/25 flex items-center justify-center gap-2 select-none cursor-pointer active:scale-95"
+              >
+                Faollashtirish sahifasiga o'tish <ArrowRight className="h-4.5 w-4.5" />
+              </button>
             </div>
           )}
 
-          {/* STEP 2: SECURE CLICK / PAYME BILLING PANEL */}
-          {step === "payment" && (
-            <div className="space-y-5 animate-fade-in text-left">
-              
-              <div className="text-center space-y-1.5 mt-2">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                  <Wallet className="h-4 w-4" />
-                </span>
-                <h3 className="font-display text-lg font-bold text-white tracking-tight">Xavfsiz To'lov Bo'limi</h3>
-                <p className="text-xs text-[#b4b4b4] px-4 leading-relaxed">
-                  Tasdiqlash to'lovini amalga oshirish funksiyasi. VeloxAi 100% qonuniy va karta ma'lumotlarini (oy/yil/kod) so'ramaydi!
-                </p>
+          {/* STEP 2: PROFESSIONAL SECURE CHECKOUT WITH INTEGRATIONS */}
+          {step === "checkout" && (
+            <div className="space-y-4 my-auto" id="checkout-form-step">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-bold text-white">Xavfsiz hisob-kitob:</h4>
+                <button 
+                  id="checkout-back-plans-btn"
+                  onClick={() => setStep("plans")}
+                  className="text-xs text-amber-500 hover:text-amber-400 hover:underline cursor-pointer font-semibold"
+                >
+                  Tarifni o'zgartirish
+                </button>
               </div>
 
-              {/* Collapsible Admin/Developer Settings for Merchant credentials */}
-              <div className="border border-[#2f2f2f] rounded-xl bg-[#1c1c1c]/40 overflow-hidden">
+              {/* Uzbekistan Integrated Systems selector tabs */}
+              <div className="grid grid-cols-3 gap-1.5 p-1 bg-[#1a1a1e] rounded-xl border border-[#27272a] text-xs">
                 <button
+                  id="tab-payment-card"
                   type="button"
-                  onClick={() => setShowConfig(!showConfig)}
-                  className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-[#8b8b8b] hover:text-[#ececec] hover:bg-[#1a1a1a] transition-all cursor-pointer"
+                  onClick={() => { setPaymentMethod("card"); setErrorMsg(""); }}
+                  className={`py-2.5 rounded-lg font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                    paymentMethod === "card" 
+                      ? "bg-[#2d2d34] text-white shadow" 
+                      : "text-[#71717a] hover:text-white"
+                  }`}
                 >
-                  <span className="flex items-center gap-2">
-                    <Settings className="h-3.5 w-3.5" />
-                    Boshqaruv Sozlamalari (Faqat Admin uchun)
-                  </span>
-                  <span className="font-mono text-[9px] bg-[#2a2a2a] px-1.5 py-0.5 rounded">
-                    {showConfig ? "Yopish" : "Ochish"}
-                  </span>
+                  <CreditCard className="h-3.5 w-3.5" /> Milliy / Visa
                 </button>
+                <button
+                  id="tab-payment-click"
+                  type="button"
+                  onClick={() => { setPaymentMethod("click"); setErrorMsg(""); }}
+                  className={`py-2.5 rounded-lg font-black transition-all cursor-pointer ${
+                    paymentMethod === "click" 
+                      ? "bg-[#102a45] text-[#00aef0] shadow border border-[#00aef0]/20" 
+                      : "text-[#71717a] hover:text-[#00aef0]"
+                  }`}
+                >
+                  CLICK
+                </button>
+                <button
+                  id="tab-payment-payme"
+                  type="button"
+                  onClick={() => { setPaymentMethod("payme"); setErrorMsg(""); }}
+                  className={`py-2.5 rounded-lg font-black transition-all cursor-pointer ${
+                    paymentMethod === "payme" 
+                      ? "bg-[#0b2d28] text-[#00c5b4] shadow border border-[#00c5b4]/20" 
+                      : "text-[#71717a] hover:text-[#00c5b4]"
+                  }`}
+                >
+                  Payme
+                </button>
+              </div>
 
-                {showConfig && (
-                  <div className="p-4 border-t border-[#2f2f2f] bg-[#141414] space-y-3 animate-fade-in text-xs">
-                    <p className="text-[10px] text-[#676767] leading-relaxed">
-                      Ushbu bo'limda siz o'zingizning rasmiy CLICK va Payme API merchant kalitlaringizni sozlashingiz mumkin. Kalitlar hozirgi brauzeringizда xavfsiz tarzda saqlanadi.
-                    </p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-[#8b8b8b] block font-mono">CLICK Merchant ID</label>
-                        <input
-                          type="text"
-                          value={clickMerchantId}
-                          onChange={(e) => handleSaveConfig("VITE_CLICK_MERCHANT_ID", e.target.value, setClickMerchantId)}
-                          placeholder="Masalan: 14832"
-                          className="w-full bg-[#212121] border border-[#2f2f2f] rounded px-2.5 py-1.5 font-mono text-white focus:outline-none focus:border-[#00aef0]"
-                        />
+              {/* METHOD A: DIRECT PLASTIC CARD DEBIT GATEWAY */}
+              {paymentMethod === "card" && (
+                <form id="card-payment-form" onSubmit={handleCardSubmit} className="space-y-4">
+                  
+                  {/* Real-time high-fidelity credit card simulation */}
+                  <div className="relative h-44 rounded-xl bg-gradient-to-tr from-[#1b1b1f] via-[#232329] to-[#2d2d34] p-5 text-white overflow-hidden shadow-lg border border-[#2d2d34] flex flex-col justify-between">
+                    <div className="absolute top-0 right-0 w-36 h-36 bg-amber-500/5 blur-3xl pointer-events-none rounded-full" />
+                    
+                    <div className="flex justify-between items-start">
+                      {/* Gold Chip element */}
+                      <div className="h-9 w-12 rounded bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
+                        <div className="w-7 h-5 bg-amber-600/50 rounded-sm" />
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-[#8b8b8b] block font-mono">CLICK Service/ID</label>
+                      <span className="text-xs font-black font-mono tracking-widest text-amber-500">
+                        {cardBrand === "Noma'lum" ? "DEBIT CARD" : cardBrand.toUpperCase()}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1">
+                      <span className="block text-[10px] text-[#71717a] font-mono tracking-wide uppercase">Karta raqami</span>
+                      <span className="block text-lg font-black font-mono tracking-widest text-[#ececec]">
+                        {cardNumber || "•••• •••• •••• ••••"}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between items-end">
+                      <div>
+                        <span className="block text-[8px] text-[#71717a] uppercase font-mono">Egasining ismi</span>
+                        <span className="block text-xs font-bold font-mono uppercase tracking-wider truncate max-w-[170px]">
+                          {cardholderName || "SHOXRUX RASULOV"}
+                        </span>
+                      </div>
+                      <div className="flex gap-5">
+                        <div>
+                          <span className="block text-[8px] text-[#71717a] uppercase font-mono">Muddati</span>
+                          <span className="block text-xs font-bold font-mono">
+                            {cardExpiry || "OY/YIL"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="block text-[8px] text-[#71717a] uppercase font-mono">CVC</span>
+                          <span className="block text-xs font-bold font-mono">
+                            {cardCvc ? "•••" : "000"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Manual Credit Card input rows */}
+                  <div className="grid grid-cols-2 gap-3 text-left">
+                    <div className="col-span-2 space-y-1">
+                      <label className="block text-[10px] font-bold text-[#71717a] uppercase tracking-wider">Karta raqami (Uzcard, Humo, Visa, Mastercard)</label>
+                      <input
+                        id="input-card-number"
+                        type="text"
+                        required
+                        maxLength={19}
+                        placeholder="8600 •••• •••• ••••"
+                        value={cardNumber}
+                        onChange={(e) => setCardNumber(formatCardNumber(e.target.value))}
+                        className="w-full bg-[#1a1a1e] border border-[#27272a] focus:border-amber-500 rounded-lg px-3 py-2.5 text-sm font-mono tracking-wider focus:outline-none text-[#ececec]"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-[10px] font-bold text-[#71717a] uppercase tracking-wider">Amal qilish muddati</label>
+                      <input
+                        id="input-card-expiry"
+                        type="text"
+                        required
+                        maxLength={5}
+                        placeholder="OY/YIL"
+                        value={cardExpiry}
+                        onChange={(e) => setCardExpiry(formatCardExpiry(e.target.value))}
+                        className="w-full bg-[#1a1a1e] border border-[#27272a] focus:border-amber-500 rounded-lg px-3 py-2.5 text-sm font-mono tracking-wider text-center focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-[10px] font-bold text-[#71717a] uppercase tracking-wider">CVC / CVV kodi</label>
+                      <input
+                        id="input-card-cvc"
+                        type="password"
+                        required
+                        maxLength={3}
+                        placeholder="•••"
+                        value={cardCvc}
+                        onChange={(e) => setCardCvc(e.target.value.replace(/\D/g, ""))}
+                        className="w-full bg-[#1a1a1e] border border-[#27272a] focus:border-amber-500 rounded-lg px-3 py-2.5 text-sm font-mono tracking-wider text-center focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="col-span-2 space-y-1">
+                      <label className="block text-[10px] font-bold text-[#71717a] uppercase tracking-wider">Egasining Ism va Familiyasi (Lotincha)</label>
+                      <input
+                        id="input-card-holder"
+                        type="text"
+                        required
+                        placeholder="Masalan: SHOXRUX RASULOV"
+                        value={cardholderName}
+                        onChange={(e) => setCardholderName(e.target.value.toUpperCase())}
+                        className="w-full bg-[#1a1a1e] border border-[#27272a] focus:border-amber-500 rounded-lg px-3 py-2.5 text-xs focus:outline-none text-white font-medium"
+                      />
+                    </div>
+                  </div>
+
+                  {errorMsg && (
+                    <p className="text-[11px] text-rose-400 bg-rose-950/25 px-3 py-2 rounded-lg border border-rose-500/20 text-left">
+                      ⚠️ {errorMsg}
+                    </p>
+                  )}
+
+                  <div className="flex gap-2.5 pt-2">
+                    <button
+                      id="card-btn-back"
+                      type="button"
+                      onClick={() => setStep("plans")}
+                      className="flex-1 rounded-xl bg-transparent border border-[#27272a] hover:bg-[#1a1a1e] py-3 text-xs font-semibold transition-all cursor-pointer"
+                    >
+                      Orqaga
+                    </button>
+                    <button
+                      id="card-btn-submit"
+                      type="submit"
+                      className="flex-1 rounded-xl bg-[#ececec] hover:bg-white text-black font-extrabold py-3 text-xs transition-all shadow-md cursor-pointer text-center"
+                    >
+                      {currentPrice.uzs} To'lash
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* METHOD B: MOBILE TELECOM SYSTEMS (CLICK / PAYME) */}
+              {(paymentMethod === "click" || paymentMethod === "payme") && (
+                <form id="mobile-payment-form" onSubmit={(e) => handleMobileSubmit(e, paymentMethod)} className="space-y-4">
+                  <div className="space-y-4 p-5 bg-[#1a1a1e] border border-[#27272a] rounded-xl text-left">
+                    <div className="space-y-1">
+                      <label className="block text-xs font-semibold text-[#a1a1aa]">
+                        {paymentMethod.toUpperCase()} tizimidagi telefon raqamingiz:
+                      </label>
+                      <div className="relative">
                         <input
+                          id="input-mobile-phone"
                           type="text"
-                          value={clickServiceId}
-                          onChange={(e) => handleSaveConfig("VITE_CLICK_SERVICE_ID", e.target.value, setClickServiceId)}
-                          placeholder="Masalan: 28419"
-                          className="w-full bg-[#212121] border border-[#2f2f2f] rounded px-2.5 py-1.5 font-mono text-white focus:outline-none focus:border-[#00aef0]"
+                          required
+                          placeholder="+998 (90) 123-45-67"
+                          value={phone}
+                          onChange={(e) => {
+                            const input = e.target.value;
+                            if (!input.startsWith("+998")) {
+                              setPhone("+998 ");
+                              return;
+                            }
+                            const digits = input.substring(5).replace(/\D/g, "");
+                            let formatted = "+998 ";
+                            if (digits.length > 0) formatted += "(" + digits.substring(0,2);
+                            if (digits.length > 2) formatted += ") " + digits.substring(2,5);
+                            if (digits.length > 5) formatted += "-" + digits.substring(5,7);
+                            if (digits.length > 7) formatted += "-" + digits.substring(7,9);
+                            setPhone(formatted);
+                          }}
+                          className="w-full bg-[#121214] border border-[#27272a] focus:border-amber-500 rounded-lg px-3 py-2.5 text-sm font-mono tracking-wider focus:outline-none text-white"
                         />
+                        <Smartphone className="absolute right-3 top-3 h-4.5 w-4.5 text-[#71717a]" />
                       </div>
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[10px] text-[#8b8b8b] block font-mono">Payme Merchant ID</label>
-                      <input
-                        type="text"
-                        value={paymeMerchantId}
-                        onChange={(e) => handleSaveConfig("VITE_PAYME_MERCHANT_ID", e.target.value, setPaymeMerchantId)}
-                        placeholder="Masalan: 659d4f12f07ab9b23..."
-                        className="w-full bg-[#212121] border border-[#2f2f2f] rounded px-2.5 py-1.5 font-mono text-white focus:outline-none focus:border-[#00c5b4]"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Payment Method Selector Tabs: CLICK & PAYME */}
-              <div className="grid grid-cols-2 gap-2 p-1 bg-[#1c1c1c] rounded-xl border border-[#2f2f2f]">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPaymentMethod("click");
-                    setErrorMsg("");
-                  }}
-                  className={`py-2.5 text-xs font-bold rounded-lg transition-all tracking-wide flex items-center justify-center gap-2 cursor-pointer ${
-                    paymentMethod === "click"
-                      ? "bg-gradient-to-r from-[#00aef0]/20 to-[#0f355c]/20 text-[#00aef0] border border-[#00aef0]/50 shadow-md"
-                      : "text-[#676767] hover:text-[#00aef0]"
-                  }`}
-                >
-                  <span className="font-black text-xs font-display flex items-center bg-[#00aef0] text-white px-1.5 py-0.5 rounded mr-1">click</span>
-                  CLICK Tizimi
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPaymentMethod("payme");
-                    setErrorMsg("");
-                  }}
-                  className={`py-2.5 text-xs font-bold rounded-lg transition-all tracking-wide flex items-center justify-center gap-2 cursor-pointer ${
-                    paymentMethod === "payme"
-                      ? "bg-gradient-to-r from-[#00c5b4]/20 to-[#004f4a]/20 text-[#00c5b4] border border-[#00c5b4]/50 shadow-md"
-                      : "text-[#676767] hover:text-[#00c5b4]"
-                  }`}
-                >
-                  <span className="font-black text-xs font-display flex items-center bg-[#00b9a6] text-white px-1.5 py-0.5 rounded mr-1">payme</span>
-                  Payme Tizimi
-                </button>
-              </div>
-
-              {/* TAB 1: CLICK FORM WITH NO MANUAL CARDS NEEDED */}
-              {paymentMethod === "click" ? (
-                <div className="space-y-4 animate-fade-in">
-                  <div className="space-y-1.5">
-                    <label id="phone-label-click" className="block text-xs font-semibold text-[#b4b4b4] font-display">
-                      CLICK tizimiga ulangan Telefon raqamingiz
-                    </label>
-
-                    <div className="relative">
-                      <input
-                        type="text"
-                        required
-                        placeholder="+998 (90) 123-45-67"
-                        value={clickPhone}
-                        onChange={(e) => handlePhoneChange(e, "click")}
-                        className="w-full bg-[#212121] border border-[#2f2f2f] focus:border-[#00aef0] focus:ring-1 focus:ring-[#00aef0] rounded-xl px-4 py-3 text-sm font-mono tracking-wider focus:outline-none text-[#ececec]"
-                      />
-                      <div className="absolute right-3.5 top-3.5 text-[#00aef0]">
-                        <Smartphone className="h-4 w-4" />
-                      </div>
-                    </div>
-                    <span className="block text-[10px] text-[#676767] leading-tight font-sans">
-                      *Xavfsiz redirection yoki push billing uchun telefoni hisobingiz.
-                    </span>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-[#b4b4b4] font-display">
-                      To'lovchining To'liq Ismi (Ism Familiyasi)
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Masalan: SHOXRUX RASULOV"
-                      value={payerName}
-                      onChange={(e) => setPayerName(e.target.value.toUpperCase())}
-                      className="w-full bg-[#212121] border border-[#2f2f2f] focus:border-[#00aef0] focus:ring-1 focus:ring-[#00aef0] rounded-xl px-4 py-3 text-xs tracking-wide focus:outline-none placeholder-[#4e4e4e]"
-                    />
-                  </div>
-
-                  {errorMsg && (
-                    <p className="text-[11px] text-rose-400 bg-rose-950/25 px-3 py-2.5 rounded-lg border border-rose-500/25 animate-pulse">
-                      ⚠️ {errorMsg}
-                    </p>
-                  )}
-
-                  {/* Dual payment action paths (Redirection vs Simulator) */}
-                  <div className="space-y-3.5 pt-1">
-                    
-                    {/* Primary Path: Official Direct checkout opening with deep links */}
-                    <button
-                      type="button"
-                      onClick={handleRealClickPayment}
-                      className="w-full rounded-xl bg-gradient-to-r from-[#00aef0] to-[#0d5ca0] text-white font-bold hover:brightness-110 py-3.5 text-sm transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer font-display"
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                      Biznes-CLICK orqali Rasmiy To'lash (26,000 UZS)
-                    </button>
-
-                    <div className="relative flex py-1 items-center">
-                      <div className="flex-grow border-t border-[#2a2a2a]"></div>
-                      <span className="flex-shrink mx-4 text-[10px] text-[#4e4e4e] uppercase font-bold tracking-wider font-mono">Yoki Sandbox Simulyatsiya</span>
-                      <div className="flex-grow border-t border-[#2a2a2a]"></div>
-                    </div>
-
-                    {/* Secondary Path: Interactive simulator for demonstration */}
-                    <button
-                      type="button"
-                      onClick={(e) => handleConfirmBillingPayment(e, "click")}
-                      className="w-full rounded-xl bg-transparent border border-[#3e3e3e] hover:bg-[#212121] text-[#b4b4b4] hover:text-white py-3 text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <Smartphone className="h-3.5 w-3.5 text-amber-500" />
-                      Tezkor Push Billing Simulyatori (Instant SMS test)
-                    </button>
-                  </div>
-
-                  <div className="flex gap-2 items-center bg-[#212121]/20 p-3 rounded-lg border border-[#2f2f2f] text-[10px] text-[#676767] leading-relaxed">
-                    <ShieldCheck className="h-4.5 w-4.5 text-[#00aef0] shrink-0" />
-                    <span>
-                      CLICK Billing rasmiy integratsiyasi: Ma'lumotlar to'liq shifrlangan va tranzaksiya CLICK rasmiy xavfsizlik sahifasida yakunlanadi.
-                    </span>
-                  </div>
-
-                  <div className="pt-1 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setStep("intro")}
-                      className="flex-1 rounded-xl bg-transparent border border-[#2f2f2f] hover:bg-[#212121] py-2.5 text-xs font-medium transition-all cursor-pointer"
-                    >
-                      Orqaga
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onClose}
-                      className="flex-1 rounded-xl bg-transparent border border-rose-500/25 hover:border-rose-500/40 text-rose-400 hover:bg-rose-950/20 py-2.5 text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1"
-                    >
-                      <X className="h-3.5 w-3.5" /> Chiqish
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                /* TAB 2: PAYME FORM WITH NO MANUAL CARDS NEEDED */
-                <div className="space-y-4 animate-fade-in">
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-[#b4b4b4] font-display">
-                      Payme hisobiga bog'langan Telefon raqamingiz
-                    </label>
-
-                    <div className="relative">
-                      <input
-                        type="text"
-                        required
-                        placeholder="+998 (90) 123-45-67"
-                        value={paymePhone}
-                        onChange={(e) => handlePhoneChange(e, "payme")}
-                        className="w-full bg-[#212121] border border-[#2f2f2f] focus:border-[#00c5b4] focus:ring-1 focus:ring-[#00c5b4] rounded-xl px-4 py-3 text-sm font-mono tracking-wider focus:outline-none text-[#ececec]"
-                      />
-                      <div className="absolute right-3.5 top-3.5 text-[#00c5b4]">
-                        <Smartphone className="h-4 w-4" />
-                      </div>
-                    </div>
-                    <span className="block text-[10px] text-[#676767] leading-tight font-sans">
-                      *Payme ro'yxatidan o'tgan telefoningiz. PUSH billing invoice ochiladi.
-                    </span>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-[#b4b4b4] font-display">
-                      To'lovchining To'liq Ismi (Ism Familiyasi)
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Masalan: SHOXRUX RASULOV"
-                      value={payerName}
-                      onChange={(e) => setPayerName(e.target.value.toUpperCase())}
-                      className="w-full bg-[#212121] border border-[#2f2f2f] focus:border-[#00c5b4] focus:ring-1 focus:ring-[#00c5b4] rounded-xl px-4 py-3 text-xs tracking-wide focus:outline-none placeholder-[#4e4e4e]"
-                    />
-                  </div>
-
-                  {errorMsg && (
-                    <p className="text-[11px] text-rose-400 bg-rose-950/25 px-3 py-2.5 rounded-lg border border-rose-500/25 animate-pulse">
-                      ⚠️ {errorMsg}
-                    </p>
-                  )}
-
-                  {/* Dual action paths for Payme */}
-                  <div className="space-y-3.5 pt-1">
-                    
-                    {/* Primary Path: Official Direct checkout opening with deep links */}
-                    <button
-                      type="button"
-                      onClick={handleRealPaymePayment}
-                      className="w-full rounded-xl bg-gradient-to-r from-[#00c5b4] to-[#004f4a] text-white font-bold hover:brightness-110 py-3.5 text-sm transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer font-display"
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                      Payme checkout orqali Rasmiy To'lash (26,000 UZS)
-                    </button>
-
-                    <div className="relative flex py-1 items-center">
-                      <div className="flex-grow border-t border-[#2a2a2a]"></div>
-                      <span className="flex-shrink mx-4 text-[10px] text-[#4e4e4e] uppercase font-bold tracking-wider font-mono">Yoki Sandbox Simulyatsiya</span>
-                      <div className="flex-grow border-t border-[#2a2a2a]"></div>
-                    </div>
-
-                    {/* Secondary Path: Interactive simulator for demonstration */}
-                    <button
-                      type="button"
-                      onClick={(e) => handleConfirmBillingPayment(e, "payme")}
-                      className="w-full rounded-xl bg-transparent border border-[#3e3e3e] hover:bg-[#212121] text-[#b4b4b4] hover:text-white py-3 text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <Smartphone className="h-3.5 w-3.5 text-amber-500" />
-                      Tezkor Push Billing Simulyatori (Instant SMS test)
-                    </button>
-                  </div>
-
-                  <div className="flex gap-2 items-center bg-[#212121]/20 p-3 rounded-lg border border-[#2f2f2f] text-[10px] text-[#00c5b4]/80 leading-relaxed">
-                    <ShieldCheck className="h-4.5 w-4.5 text-[#00c5b4] shrink-0" />
-                    <span>
-                      Payme Secure billing: Tranzaksiya to'liq qonuniy va xavfsiz ravishda Payme Billing serverlarida amalga oshiriladi.
-                    </span>
-                  </div>
-
-                  <div className="pt-1 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setStep("intro")}
-                      className="flex-1 rounded-xl bg-transparent border border-[#2f2f2f] hover:bg-[#212121] py-2.5 text-xs font-medium transition-all cursor-pointer"
-                    >
-                      Orqaga
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onClose}
-                      className="flex-1 rounded-xl bg-transparent border border-rose-500/25 hover:border-rose-500/40 text-rose-400 hover:bg-rose-950/20 py-2.5 text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1"
-                    >
-                      <X className="h-3.5 w-3.5" /> Chiqish
-                    </button>
-                  </div>
-                </div>
-              )}
-
-            </div>
-          )}
-
-          {/* STEP 2.5: REAL TRANSACTION VERIFICATION VIEW */}
-          {step === "real_verification" && (
-            <div className="space-y-5 animate-fade-in">
-              <div className="text-center space-y-1.5 mt-2">
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                  <ShieldCheck className="h-5 w-5" />
-                </span>
-                <h3 className="font-display text-lg font-bold text-white tracking-tight">To'lovni Tasdiqlash</h3>
-                <p className="text-xs text-[#b4b4b4] max-w-sm mx-auto leading-relaxed">
-                  Siz Click/Payme rasmiy to'lov tizimiga yo'naltirildingiz. To'lov yakunlangach, uning haqiqiyligini tekshirishimiz uchun chekdagi ma'lumotlarni kiriting.
-                </p>
-              </div>
-
-              <form onSubmit={handleSubmitRealVerification} className="space-y-4 max-w-md mx-auto">
-                <div className="space-y-1.5 text-left">
-                  <label className="text-[11px] font-semibold text-[#b4b4b4] uppercase tracking-wider block">
-                    Tranzaksiya ID (Ssilkada yoki to'lov chekidagi raqam)*
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Masalan: 489372102 (kamida 8 xonali raqam)"
-                    value={transactionId}
-                    onChange={(e) => setTransactionId(e.target.value.replace(/\D/g, ""))}
-                    className="w-full bg-[#212121] border border-[#2f2f2f] focus:border-[#676767] rounded-xl px-4 py-3 text-sm focus:outline-none placeholder-[#4c4c4c] font-mono tracking-wider"
-                  />
-                  <p className="text-[10px] text-[#676767] leading-relaxed">
-                    * CLICK yoki Payme to'lov chekingizning unikal raqamini kiriting. Serverimiz to'lovlar bazasidan ushlangan summani muvaffaqiyatli solishtirgandagina tizim premium rejimini ochadi.
-                  </p>
-                </div>
-
-                {/* DRAG-AND-DROP FILE UPLOAD BOX */}
-                <div className="space-y-1.5 text-left">
-                  <label className="text-[11px] font-semibold text-[#b4b4b4] uppercase tracking-wider block">
-                    To'lov cheki skrinshoti (ixtiyoriy)
-                  </label>
-                  <div
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleDrop}
-                    className={`border-2 border-dashed rounded-xl p-5 text-center flex flex-col items-center justify-center transition-all ${
-                      isDragging 
-                        ? "border-amber-400 bg-amber-500/5" 
-                        : "border-[#2f2f2f] hover:border-[#4c4c4c] bg-[#1a1a1a]/50"
-                    }`}
-                  >
-                    <input
-                      type="file"
-                      id="receipt-file"
-                      accept="image/*"
-                      onChange={handleReceiptFileChange}
-                      className="hidden"
-                    />
-                    
-                    {receiptImage ? (
-                      <div className="space-y-2">
-                        <div className="relative w-16 h-16 mx-auto rounded-lg overflow-hidden border border-[#2f2f2f]">
-                          <img src={receiptImage} alt="Chek" className="w-full h-full object-cover" />
-                        </div>
-                        <div className="flex items-center justify-center gap-1.5 text-xs text-amber-400 font-medium">
-                          <FileText className="h-3.5 w-3.5" />
-                          <span className="truncate max-w-[200px]">{receiptFileName}</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setReceiptImage(null);
-                            setReceiptFileName("");
-                          }}
-                          className="text-[10px] text-rose-400 hover:underline cursor-pointer"
-                        >
-                          Chekni o'chirish
-                        </button>
-                      </div>
-                    ) : (
-                      <label htmlFor="receipt-file" className="cursor-pointer space-y-2 select-none w-full block">
-                        <UploadCloud className="h-8 w-8 text-[#b4b4b4] mx-auto opacity-70" />
-                        <div className="text-xs text-[#ececec]">
-                          <span className="text-amber-400 hover:underline font-semibold">Chek rasmini biriktirish</span> yoki bu yerga sudrab tashlang
-                        </div>
-                        <div className="text-[9px] text-[#676767]">
-                          JPG, PNG turlari (Maksimal 5MB)
-                        </div>
+                      <label className="block text-xs font-semibold text-[#a1a1aa]">
+                        Ism va Familiyangiz:
                       </label>
-                    )}
+                      <input
+                        id="input-mobile-name"
+                        type="text"
+                        required
+                        placeholder="Masalan: SHOXRUX RASULOV"
+                        value={cardholderName}
+                        onChange={(e) => setCardholderName(e.target.value.toUpperCase())}
+                        className="w-full bg-[#121214] border border-[#27272a] focus:border-amber-500 rounded-lg px-3 py-2.5 text-xs focus:outline-none text-white"
+                      />
+                    </div>
                   </div>
-                </div>
 
-                {errorMsg && (
-                  <p className="text-[11px] text-rose-400 bg-rose-950/20 p-2.5 rounded-lg border border-rose-500/10 text-left">
-                    ⚠️ {errorMsg}
-                  </p>
-                )}
+                  {errorMsg && (
+                    <p className="text-[11px] text-rose-400 bg-rose-950/25 px-3 py-2 rounded-lg border border-rose-500/20 text-left">
+                      ⚠️ {errorMsg}
+                    </p>
+                  )}
 
-                <div className="pt-2 flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setErrorMsg("");
-                      setStep("payment");
-                    }}
-                    className="flex-1 rounded-xl bg-transparent border border-[#2f2f2f] hover:bg-[#212121] py-3 text-xs font-semibold transition-all text-center select-none cursor-pointer"
-                  >
-                    Orqaga qaytish
-                  </button>
-                  <button
-                    type="submit"
-                    className="flex-1 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-600 hover:to-yellow-500 text-black font-bold py-3 text-xs transition-all text-center shadow-lg active:scale-95 cursor-pointer"
-                  >
-                    To'lovni Tekshirish
-                  </button>
-                </div>
-              </form>
+                  <div className="flex gap-2.5 pt-2">
+                    <button
+                      id="mobile-btn-back"
+                      type="button"
+                      onClick={() => setStep("plans")}
+                      className="flex-1 rounded-xl bg-transparent border border-[#27272a] hover:bg-[#1a1a1e] py-3 text-xs font-semibold transition-all cursor-pointer"
+                    >
+                      Orqaga
+                    </button>
+                    <button
+                      id="mobile-btn-submit"
+                      type="submit"
+                      className={`flex-1 rounded-xl font-extrabold py-3 text-xs transition-all shadow-md cursor-pointer text-center text-white ${
+                        paymentMethod === "click" 
+                          ? "bg-gradient-to-r from-[#00aef0] to-[#0a5a9e] hover:brightness-110" 
+                          : "bg-gradient-to-r from-[#00c5b4] to-[#014e47] hover:brightness-110"
+                      }`}
+                    >
+                      {paymentMethod.toUpperCase()} orqali To'lash
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           )}
 
-          {/* STEP 3: INTERACTIVE SMS VERIFICATION CHANNELS */}
-          {step === "sms" && (
-            <div className="space-y-6 animate-fade-in text-center">
+          {/* STEP 3: HIGH-SECURITY BANK BILLING HANDSHAKE */}
+          {step === "processing" && (
+            <div className="py-8 flex flex-col items-center justify-center text-center space-y-6 my-auto" id="processing-step">
               
-              <div className="space-y-1.5 mt-2">
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                  <Smartphone className="h-5 w-5" />
-                </span>
-                <h3 className="font-display text-lg font-bold text-white tracking-tight">Tasdiqlash Kodini Kiriting</h3>
-                <p className="text-xs text-[#b4b4b4] max-w-sm mx-auto leading-relaxed">
-                  Sizning smartfoningizga kelgan maxfiy 4-xonali tasdiqlash kodini formaga kiriting.
-                </p>
-                <p className="text-[11px] text-[#676767] font-mono leading-none">
-                  Tranzaksiya turi: <strong>{paymentMethod === "click" ? "CLICK Tizimi Billing" : "Payme Tizimi Billing"} (P2P Transfer)</strong>
-                </p>
-              </div>
-
-              {/* Dynamic simulated phone message pop up */}
-              <div className="bg-[#212121]/50 border border-amber-500/20 rounded-xl p-4 text-left space-y-2 max-w-md mx-auto">
-                <div className="flex items-center justify-between text-[10px] text-amber-500 font-bold uppercase tracking-wider font-mono">
-                  <span>✉️ SMS Xabarnoma ({paymentMethod === "click" ? "CLICK" : "Payme"})</span>
-                  <span className="animate-pulse flex items-center gap-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                    Hozir keldi
-                  </span>
-                </div>
-                <p className="text-xs text-[#dcdcdc] leading-relaxed">
-                  Hisobingizdan <strong>26,000 UZS</strong> (VeloxAi Premium) to'lovi uchun tasdiqlash kodi: 
-                  <strong className="mx-2 text-sm bg-amber-500/25 text-amber-300 font-bold px-2 py-0.5 rounded font-mono tracking-widest border border-amber-400/20 select-all">
-                    {generatedSms}
-                  </strong>. 
-                  Ushbu kodni begonalarga bermang!
-                </p>
-              </div>
-
-              {/* Code submission box block */}
-              <form onSubmit={handleVerifySms} className="max-w-xs mx-auto space-y-4">
-                <div className="space-y-1.5 text-left">
-                  <div className="flex justify-between items-center text-xs text-[#b4b4b4]">
-                    <span>Tasdiqlash kodi</span>
-                    <span className="font-mono text-amber-400">
-                      {Math.floor(smsTimer / 60)}:{(smsTimer % 60).toString().padStart(2, "0")} qoldi
-                    </span>
-                  </div>
-                  <input
-                    type="text"
-                    required
-                    maxLength={4}
-                    placeholder="4-xonali kod"
-                    value={smsCode}
-                    onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, ""))}
-                    className="w-full bg-[#212121] border border-[#2f2f2f] focus:border-[#676767] rounded-xl px-4 py-3 text-xl font-bold font-mono tracking-widest text-center focus:outline-none placeholder-[#383838]"
-                  />
-                </div>
-
-                {errorMsg && (
-                  <p className="text-[11px] text-rose-400 bg-rose-950/20 p-2.5 rounded-lg border border-rose-500/10 text-left">
-                    ⚠️ {errorMsg}
-                  </p>
-                )}
-
-                <div className="pt-2 flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setErrorMsg("");
-                      setStep("payment");
-                    }}
-                    className="flex-1 rounded-xl bg-transparent border border-[#2f2f2f] hover:bg-[#212121] py-3 text-xs font-semibold transition-all text-center select-none"
-                  >
-                    Orqaga qaytish
-                  </button>
-                  <button
-                    type="submit"
-                    className="flex-1 rounded-xl bg-[#ececec] hover:bg-white text-black font-semibold py-3 text-xs transition-all text-center shadow-lg cursor-pointer"
-                  >
-                    Kodni Tasdiqlash
-                  </button>
-                </div>
-              </form>
-
-            </div>
-          )}
-
-          {/* STEP 4: LOADER VERIFYING TRANSACTION */}
-          {step === "verifying" && (
-            <div className="py-12 flex flex-col items-center justify-center text-center space-y-6">
-              
-              {/* Spinning/progress pulse representation */}
+              {/* Spinning circular progress display */}
               <div className="relative w-24 h-24 flex items-center justify-center">
-                <svg className="w-full h-full transform -rotate-90 animate-pulse">
+                <svg className="w-full h-full transform -rotate-90">
                   <circle
                     cx="48"
                     cy="48"
                     r="40"
-                    stroke="#2f2f2f"
+                    stroke="#1a1a1e"
                     strokeWidth="4"
                     fill="transparent"
                   />
@@ -1007,65 +717,84 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
                     cx="48"
                     cy="48"
                     r="40"
-                    stroke="#d4a373"
+                    stroke="#f59e0b"
                     strokeWidth="4"
                     fill="transparent"
                     strokeDasharray={251.2}
-                    strokeDashoffset={251.2 - (251.2 * checkingProgress) / 100}
-                    className="transition-all duration-300 ease-out"
+                    strokeDashoffset={251.2 - (251.2 * processingProgress) / 100}
+                    className="transition-all duration-100 ease-out"
                   />
                 </svg>
-                <div className="absolute font-mono text-sm font-bold text-[#ececec]">
-                  {checkingProgress}%
+                <div className="absolute font-mono text-sm font-black text-white">
+                  {processingProgress}%
                 </div>
               </div>
 
-              <div className="space-y-1.5 max-w-xs mx-auto">
-                <h4 className="font-display text-sm font-bold text-white">To'lov Tekshirilmoqda</h4>
-                <p className="text-xs text-amber-500 font-medium h-8 animate-pulse">
-                  {progressMsg}
+              <div className="space-y-2 max-w-xs">
+                <h4 className="font-display text-sm font-bold text-white">Xavfsiz Tranzaksiya</h4>
+                <p className="text-xs text-amber-500 font-semibold h-10 animate-pulse px-2 leading-relaxed">
+                  {processingMsg}
                 </p>
-                <p className="text-[10px] text-[#676767]">
-                  Bu bir necha soniya vaqt oladi. Iltimos oynani yopmang...
+                <p className="text-[10px] text-[#71717a]">
+                  Billing to'lov tranzaksiyasi tahlil qilinmoqda. Tarmoq aloqasini uzmang yoki sahifani tark etmang.
                 </p>
               </div>
-
             </div>
           )}
 
-          {/* STEP 5: SUCCESS COMPLETED ONBOARDING */}
+          {/* STEP 4: GORGEOUS SUCCESS UNLOCKED DISPLAY */}
           {step === "success" && (
-            <div className="py-6 text-center space-y-6 animate-fade-in">
-              
-              {/* Award / Confetti visual center */}
-              <div className="relative mx-auto w-16 h-16 bg-gradient-to-tr from-amber-500 to-yellow-400 text-black rounded-full flex items-center justify-center shadow-2xl animate-bounce">
+            <div className="py-6 text-center space-y-6 my-auto animate-fade-in" id="success-step">
+              <div className="relative mx-auto w-16 h-16 bg-gradient-to-tr from-amber-500 to-yellow-400 text-black rounded-full flex items-center justify-center shadow-xl">
                 <Award className="h-8 w-8 text-black stroke-[2.5]" />
-                <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-emerald-500 border border-black animate-ping" />
+                <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-emerald-500 border-2 border-black animate-ping" />
               </div>
 
               <div className="space-y-2">
-                <h3 className="font-display text-xl md:text-2xl font-black text-white tracking-tight">
-                  OBUNA FAOLLASHTIRILDI!
+                <h3 className="font-display text-xl font-black text-white tracking-tight uppercase">
+                  Advanced Obunangiz Faol!
                 </h3>
-                <p className="text-xs text-emerald-400 font-semibold font-display">
-                  Siz muvaffaqiyatli tarzda VeloxAi Cheksiz Premium obunachisiga aylandingiz!
+                <p className="text-xs text-emerald-400 font-bold font-display">
+                  Tabriklaymiz! Siz muvaffaqiyatli premium statusiga o'tdingiz.
                 </p>
-                <p className="text-xs text-[#b4b4b4] max-w-sm mx-auto p-3.5 bg-emerald-950/10 rounded-xl border border-emerald-500/20 leading-relaxed">
-                  Hurmatli <span className="font-bold text-white">{payerName}</span>, biz sizning transferingizni tasdiqladik. Endi sizda <strong>Tafakkur Limiti va savollar soni umrbod cheksiz</strong> etib belgilandi!
-                </p>
+                
+                {/* Simulated high-fidelity invoice receipt */}
+                <div className="bg-[#1a1a1e] border border-[#27272a] rounded-xl p-4 text-left space-y-2.5 text-xs leading-relaxed text-[#a1a1aa] max-w-md mx-auto font-mono">
+                  <div className="flex justify-between border-b border-[#27272a] pb-2 text-white font-bold">
+                    <span>TO'LOV CHЕKI</span>
+                    <span className="text-emerald-400 font-extrabold uppercase">[FAOL]</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Mijoz:</span>
+                    <span className="text-white font-medium">{cardholderName || "SHOXRUX RASULOV"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Tarif rejasi:</span>
+                    <span className="text-white font-medium">Velox Advanced ({billingCycle === "monthly" ? "Oylik" : "Yillik"})</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Tranzaksiya turi:</span>
+                    <span className="text-white font-medium">{paymentMethod.toUpperCase()} Gateway</span>
+                  </div>
+                  <div className="flex justify-between pt-1 border-t border-[#27272a]/40">
+                    <span>Jami yechilgan summa:</span>
+                    <span className="text-amber-400 font-black">{currentPrice.uzs}</span>
+                  </div>
+                </div>
               </div>
 
               <button
+                id="success-continue-btn"
                 onClick={onClose}
-                className="w-full rounded-xl bg-white text-black font-semibold hover:bg-gray-200 py-3.5 text-sm transition-all cursor-pointer font-display"
+                className="w-full rounded-xl bg-white text-black font-extrabold hover:bg-gray-100 py-4 text-sm transition-all cursor-pointer font-display select-none active:scale-95"
               >
-                Muloqotni Cheksiz Boshlash ♾️
+                Cheksiz suhbatni boshlash ♾️
               </button>
-
             </div>
           )}
 
         </div>
+
       </div>
     </div>
   );

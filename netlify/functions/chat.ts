@@ -1,5 +1,82 @@
 import { GoogleGenAI } from "@google/genai";
-import { generateLocalFallback } from "../../localAi";
+import { generateLocalFallback, streamLocalFallback } from "../../localAi";
+import dns from "dns";
+
+dns.setDefaultResultOrder("ipv4first");
+
+function handleFallbackResponse(error: any, messages: any[], commonHeaders: any) {
+  const userPrompt = messages && messages.length > 0 
+    ? messages[messages.length - 1].text || "" 
+    : "Salom";
+
+  const errStatus = error?.status || error?.code || "";
+  let errStr = "";
+  try {
+    errStr = error ? (String(error.message || "") + " " + String(error) + " " + JSON.stringify({
+      message: error.message,
+      status: error.status,
+      code: error.code,
+      statusText: error.statusText
+    })) : "";
+  } catch (_) {
+    errStr = error ? (String(error.message || "") + " " + String(error)) : "";
+  }
+  let systemNotice = "";
+  
+  if (
+    String(errStatus).includes("503") || 
+    errStr.includes("503") || 
+    errStr.includes("UNAVAILABLE") || 
+    errStr.toLowerCase().includes("high demand") ||
+    errStr.toLowerCase().includes("temporary")
+  ) {
+    systemNotice = `> ⚠️ **TIZIM ESLATMASI (GEMINI HADDAN TASHQARI BAND)** \n> Bepul umumiy yoki shaxsiy Gemini modeli hozirda juda yuqori yuklama ostida ishlamoqda (UNAVAILABLE 503: High Demand). \n> Suhbat uzilib qolmasligi uchun tizimimiz sizni avtomatik ravishda VeloxAi ichki oflayn kognitiv tizimiga yo'naltirdi. \n> *Hozirda sizga VeloxAi kognitiv falsafiy oflayn tizimi orqali ishonchli javob qaytarilmoqda, keyinroq qayta urinib ko'rishingiz ham mumkin:*\n\n---\n\n`;
+  } else if (
+    String(errStatus).includes("429") || 
+    errStr.includes("RESOURCE_EXHAUSTED") || 
+    errStr.includes("429") || 
+    errStr.includes("quota") ||
+    errStr.toLowerCase().includes("limit")
+  ) {
+    systemNotice = `> ⚠️ **TIZIM ESLATMASI (KVOTA TUGAGAN)** \n> Bepul va umumiy shaxsiy bo'lmagan Gemini API kaliti kunlik kvotasi to'lgan (RESOURCE_EXHAUSTED 429). \n> To'xtovsiz va tezkor Gemini 3.5-Flash modelida chatni davom ettirish uchun: **Settings > Secrets** panelida o'z shaxsiy **GEMINI_API_KEY** kalitingizni kiriting. \n> *Hozirda sizga VeloxAi kognitiv falsafiy oflayn tizimi orqali ishonchli javob qaytarilmoqda:*\n\n---\n\n`;
+  } else if (
+    errStr.includes("API_KEY_INVALID") || 
+    errStr.includes("INVALID_ARGUMENT") || 
+    errStr.includes("400") || 
+    errStr.toLowerCase().includes("invalid key") ||
+    errStr.toLowerCase().includes("api key")
+  ) {
+    systemNotice = `> ⚠️ **TIZIM ESLATMASI (KALIT XATOLIGI)** \n> Sozlangan GEMINI_API_KEY kaliti yaroqsiz yoki noto'g'ri (API_KEY_INVALID). \n> Iltimos, **Settings > Secrets** panelida kalit to'g'riligini va unda ortiqcha bo'shliqlar yo'qligini tekshiring. \n> *Hozirda sizga VeloxAi kognitiv falsafiy oflayn tizimi orqali ishonchli javob qaytarilmoqda:*\n\n---\n\n`;
+  } else {
+    systemNotice = `> ⚠️ **TIZIM ESLATMASI (KUTILMAGAN XATOLIK)** \n> Gemini API ulanishda xatolik yuz berdi: \`${errStr.substring(0, 100)}\` \n> Muammoni bartaraf etuvchi VeloxAi oflayn tizimi ishga tushirildi. \n> *Hozirda sizga VeloxAi kognitiv falsafiy oflayn tizimi orqali ishonchli javob qaytarilmoqda:*\n\n---\n\n`;
+  }
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: systemNotice })}\n\n`));
+        await streamLocalFallback(userPrompt, (chunk) => {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunk })}\n\n`));
+        });
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      } catch (fallbackErr) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Suhbat jarayonida kutilmagan xatolik yuz berdi." })}\n\n`));
+      } finally {
+        controller.close();
+      }
+    }
+  });
+
+  return new Response(stream, {
+    headers: {
+      ...commonHeaders,
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive"
+    }
+  });
+}
 
 export default async (req: Request) => {
   // CORS Preflight request handling
@@ -127,14 +204,45 @@ export default async (req: Request) => {
       }
     });
 
-    const responseStream = await ai.models.generateContentStream({
-      model: "gemini-3.5-flash",
-      contents: formattedContents,
-      config: {
-        systemInstruction: systemInstruction || "Siz aqlli va yordam beruvchi AI assistentsiz. Foydalanuvchining savollariga to'liq, aniq va chiroyli javob bering.",
-        tools: searchGroundingEnabled ? [{ googleSearch: {} }] : [],
-      },
-    });
+    let responseStream;
+    let attempts = 0;
+    const maxAttempts = 3;
+    while (attempts < maxAttempts) {
+      try {
+        responseStream = await ai.models.generateContentStream({
+          model: "gemini-3.5-flash",
+          contents: formattedContents,
+          config: {
+            systemInstruction: systemInstruction || "Siz aqlli va yordam beruvchi AI assistentsiz. Foydalanuvchining savollariga to'liq, aniq va chiroyli javob bering.",
+            tools: searchGroundingEnabled ? [{ googleSearch: {} }] : [],
+          },
+        });
+        break;
+      } catch (err: any) {
+        attempts++;
+        const errStatus = err?.status || err?.code || "";
+        const errStr = String(err?.message || err);
+        const isTransient = 
+          String(errStatus).includes("503") || 
+          errStr.includes("503") || 
+          errStr.includes("UNAVAILABLE") || 
+          errStr.toLowerCase().includes("high demand") || 
+          errStr.toLowerCase().includes("temporary") ||
+          errStr.toLowerCase().includes("fetch failed") ||
+          errStr.toLowerCase().includes("service unavailable");
+        
+        if (isTransient && attempts < maxAttempts) {
+          console.log(`Notice: Gemini service busy on attempt ${attempts} on Netlify. Re-trying in 1.5s...`);
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        } else if (attempts >= maxAttempts) {
+          console.log("Notice: Switched to internal engine seamlessly on Netlify after retries.");
+          return handleFallbackResponse(err, messages, commonHeaders);
+        } else {
+          console.log("Notice: Switched to internal engine seamlessly on Netlify.");
+          return handleFallbackResponse(err, messages, commonHeaders);
+        }
+      }
+    }
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -147,8 +255,35 @@ export default async (req: Request) => {
           }
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         } catch (err: any) {
-          console.error("Error in Netlify streaming response:", err);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: err.message || "Suhbat jarayonida kutilmagan xatolik yuz berdi." })}\n\n`));
+          console.error("Error in Netlify streaming response, falling back:", err);
+          try {
+            const errStatus = err?.status || err?.code || "";
+            let errStr = "";
+            try {
+              errStr = err ? (String(err.message || "") + " " + String(err) + " " + JSON.stringify({
+                message: err.message,
+                status: err.status,
+                code: err.code,
+                statusText: err.statusText
+              })) : "";
+            } catch (_) {
+              errStr = err ? (String(err.message || "") + " " + String(err)) : "";
+            }
+            let systemNotice = "";
+            if (String(errStatus).includes("503") || errStr.includes("503") || errStr.includes("UNAVAILABLE") || errStr.toLowerCase().includes("high demand") || errStr.toLowerCase().includes("temporary")) {
+              systemNotice = `\n\n> ⚠️ **TIZIM ESLATMASI (GEMINI HADDAN TASHQARI BAND)** \n> Bepul umumiy yoki shaxsiy Gemini modeli hozirda juda yuqori yuklama ostida ishlamoqda. \n> *Hozirda sizga VeloxAi kognitiv oflayn tizimi orqali ishonchli javob qaytarilmoqda:*\n\n---\n\n`;
+            } else {
+              systemNotice = `\n\n> ⚠️ **TIZIM ESLATMASI (STRIM XATOLIGI)** \n> Gemini API uzatishda xatolik yuz berdi. \n> *Hozirda sizga VeloxAi kognitiv oflayn tizimi orqali ishonchli javob qaytarilmoqda:*\n\n---\n\n`;
+            }
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: systemNotice })}\n\n`));
+            const userPrompt = messages && messages.length > 0 ? messages[messages.length - 1].text || "" : "Salom";
+            await streamLocalFallback(userPrompt, (chunk) => {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunk })}\n\n`));
+            });
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          } catch (fallbackErr) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Suhbat jarayonida kutilmagan xatolik yuz berdi." })}\n\n`));
+          }
         } finally {
           controller.close();
         }
