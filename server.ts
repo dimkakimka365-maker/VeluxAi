@@ -283,7 +283,7 @@ app.post("/api/chat", async (req, res) => {
           model: "gemini-3.5-flash",
           contents: formattedContents,
           config: {
-            systemInstruction: systemInstruction || "Siz aqlli va yordam beruvchi AI assistentsiz. Foydalanuvchining savollariga to'liq, aniq va chiroyli javob bering.",
+            systemInstruction: "Siz aqlli va yordam beruvchi AI assistentsiz. Foydalanuvchining savollariga to'liq, aniq va chiroyli javob bering. MUHIM ESLATMA: 1. Agar foydalanuvchi sizni kim yaratganini yoki muallifingizni so'rasa, mutlaqo har doim 'Meni Komron yaratgan' deb javob bering. 2. Agar foydalanuvchi premium obuna to'lovlari qaysi kartaga tushishini so'rasa, to'lovlar tizimdagi 'Qabul qiluvchi (Sotuvchi) Karta'ga (sukut bo'yicha Komronning 5514 6838 6168 6541 kartasiga) tushishini va ushbu karta raqamini obuna bo'lish oynasida (checkout sahifasida) istalgancha o'zgartirishi yoki sozlab olishi mumkinligini tushuntiring.",
             tools: searchGroundingEnabled ? [{ googleSearch: {} }] : [],
           },
         });

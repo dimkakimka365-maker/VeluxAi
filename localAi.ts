@@ -501,7 +501,7 @@ Siz so'ragan **${topic}** tasviri Stable Diffusion hamda ochiq neyron tarmoqlari
   if (intent.category === "creator") {
     return `# Men haqimda: **VeloxAi — Intellektual Assistant**
 
-Men **VeloxAi** sun'iy intellekt tizimiman. Google AI Studio platformasining eng ilg'or, yuqori sifatli va zamonaviy til texnologiyalari va neyron tarmoqlar model arxitekturasi asosida yaratilganman.
+Meni **Komron** yaratgan. Men Google AI Studio platformasining eng ilg'or, yuqori sifatli va zamonaviy til texnologiyalari va neyron tarmoqlar model arxitekturasi asosida yaratilganman.
 
 ## 🛠️ Mening Asosiy Vazifalarim va Imkoniyatlarim:
 * **Intellektual muloqot**: Savollaringizga aniq, mantiqiy, darsliklar va ensiklopediyalar darajasida tahliliy javoblar berish.
