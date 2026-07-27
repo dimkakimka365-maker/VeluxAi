@@ -199,7 +199,7 @@ app.post("/api/chat", async (req, res) => {
       res.setHeader("Connection", "keep-alive");
       res.setHeader("X-Accel-Buffering", "no");
       
-      const systemNotice = `> ⚠️ **TIZIM ESLATMASI (KALIT SOZLANMAGAN)** \n> Bepul va tezkor to'liq aqlli Gemini 3.5-Flash modeliga ulanish uchun: ekranning o'ng tepasidagi **Settings > Secrets** panelida o'z kalitingizni (**GEMINI_API_KEY**) kiriting. \n> *Hozirda sizga VeloxAi Oflayn/Fallback hamrohi orqali javob yozilmoqda:*\n\n---\n\n`;
+      const systemNotice = `> ⚠️ **TIZIM ESLATMASI (KALIT SOZLANMAGAN)** \n> Bepul va tezkor to'liq aqlli Gemini 3.6-Flash modeliga ulanish uchun: ekranning o'ng tepasidagi **Settings > Secrets** panelida o'z kalitingizni (**GEMINI_API_KEY**) kiriting. \n> *Hozirda sizga VeloxAi Oflayn/Fallback hamrohi orqali javob yozilmoqda:*\n\n---\n\n`;
       res.write(`data: ${JSON.stringify({ text: systemNotice })}\n\n`);
 
       const userPrompt = messages && messages.length > 0 
@@ -273,6 +273,9 @@ app.post("/api/chat", async (req, res) => {
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
 
+    const defaultSystemInstruction = "Siz aqlli va yordam beruvchi AI assistentsiz. Foydalanuvchining savollariga to'liq, aniq va chiroyli javob bering. MUHIM ESLATMA: 1. Agar foydalanuvchi sizni kim yaratganini yoki muallifingizni so'rasa, mutlaqo har doim 'Meni Komron yaratgan' deb javob bering. 2. Agar foydalanuvchi premium obuna to'lovlari qaysi kartaga tushishini so'rasa, to'lovlar xavfsiz to'lov tizimi orqali to'g'ridan-to'g'ri qabul qilinishini, hech qanday shaxsiy karta raqami ko'rsatilmasligini va to'lov xavfsiz SSL shifrlash orqali amalga oshishini tushuntiring. Shaxsiy karta raqamlarini aslo aytmang.";
+    const combinedInstruction = systemInstruction ? `${defaultSystemInstruction}\n\n${systemInstruction}` : defaultSystemInstruction;
+
     const ai = getGeminiClient();
     let responseStream;
     let attempts = 0;
@@ -280,10 +283,10 @@ app.post("/api/chat", async (req, res) => {
     while (attempts < maxAttempts) {
       try {
         responseStream = await ai.models.generateContentStream({
-          model: "gemini-3.5-flash",
+          model: "gemini-3.6-flash",
           contents: formattedContents,
           config: {
-            systemInstruction: "Siz aqlli va yordam beruvchi AI assistentsiz. Foydalanuvchining savollariga to'liq, aniq va chiroyli javob bering. MUHIM ESLATMA: 1. Agar foydalanuvchi sizni kim yaratganini yoki muallifingizni so'rasa, mutlaqo har doim 'Meni Komron yaratgan' deb javob bering. 2. Agar foydalanuvchi premium obuna to'lovlari qaysi kartaga tushishini so'rasa, to'lovlar tizimdagi 'Qabul qiluvchi (Sotuvchi) Karta'ga (sukut bo'yicha Komronning 5514 6838 6168 6541 kartasiga) tushishini va ushbu karta raqamini obuna bo'lish oynasida (checkout sahifasida) istalgancha o'zgartirishi yoki sozlab olishi mumkinligini tushuntiring.",
+            systemInstruction: combinedInstruction,
             tools: searchGroundingEnabled ? [{ googleSearch: {} }] : [],
           },
         });
@@ -363,7 +366,7 @@ app.post("/api/chat", async (req, res) => {
       errStr.includes("quota") ||
       errStr.toLowerCase().includes("limit")
     ) {
-      systemNotice = `> ⚠️ **TIZIM ESLATMASI (KVOTA TUGAGAN)** \n> Bepul va umumiy shaxsiy bo'lmagan Gemini API kaliti kunlik kvotasi to'lgan (RESOURCE_EXHAUSTED 429). \n> To'xtovsiz va tezkor Gemini 3.5-Flash modelida chatni davom ettirish uchun: **Settings > Secrets** panelida o'z shaxsiy **GEMINI_API_KEY** kalitingizni kiriting. \n> *Hozirda sizga VeloxAi kognitiv falsafiy oflayn tizimi orqali ishonchli javob qaytarilmoqda:*\n\n---\n\n`;
+      systemNotice = `> ⚠️ **TIZIM ESLATMASI (KVOTA TUGAGAN)** \n> Bepul va umumiy shaxsiy bo'lmagan Gemini API kaliti kunlik kvotasi to'lgan (RESOURCE_EXHAUSTED 429). \n> To'xtovsiz va tezkor Gemini 3.6-Flash modelida chatni davom ettirish uchun: **Settings > Secrets** panelida o'z shaxsiy **GEMINI_API_KEY** kalitingizni kiriting. \n> *Hozirda sizga VeloxAi kognitiv falsafiy oflayn tizimi orqali ishonchli javob qaytarilmoqda:*\n\n---\n\n`;
     } else if (
       errStr.includes("API_KEY_INVALID") || 
       errStr.includes("INVALID_ARGUMENT") || 

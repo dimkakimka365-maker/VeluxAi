@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
   X, 
   Sparkles, 
@@ -42,30 +42,44 @@ export interface CardValidationResult {
 export const isValidCardNumber = (num: string): CardValidationResult => {
   const clean = num.replace(/\D/g, "");
   if (clean.length !== 16) {
-    return { valid: false, reason: "Karta raqami noto'g'ri. Iltimos, 16 ta raqam kiriting." };
+    return { valid: false, reason: "Karta raqami 16 ta raqamdan iborat bo'lishi kerak." };
+  }
+
+  // Check prefix / brand validity (Uzcard, Humo, Visa, Mastercard, UnionPay)
+  const isUzcard = clean.startsWith("8600") || clean.startsWith("5514");
+  const isHumo = clean.startsWith("9860");
+  const isVisa = clean.startsWith("4");
+  const isMastercard = clean.startsWith("5");
+  const isUnionPay = clean.startsWith("62");
+
+  if (!isUzcard && !isHumo && !isVisa && !isMastercard && !isUnionPay) {
+    return { valid: false, reason: "Noma'lum karta turi. Faqat Uzcard (8600...), Humo (9860...), Visa (4...) va Mastercard (5...) kartalari qo'llab-quvvatlanadi." };
   }
   
-  // Standard test cards always valid & funded (ends with even number)
+  // Standard test cards always valid & funded
   const testCards = [
     "8600123456789012", // Uzcard (Valid, funded)
     "9860123456789012", // Humo (Valid, funded)
     "4111111111111112", // Visa (Valid, funded)
-    "5412751234123456"  // Mastercard (Valid, funded)
+    "5412751234123456", // Mastercard (Valid, funded)
+    "5514683861686541"  // User's card (Valid, funded)
   ];
 
-  // Specific cards always valid but UN-funded (ends with odd number)
+  // Specific cards always valid but UN-funded
   const unfundedCards = [
     "8600123456789013", // Uzcard (Insufficient funds)
     "4111111111111111", // Visa (Insufficient funds)
     "9860123456789013"  // Humo (Insufficient funds)
   ];
 
+  const brandName = isHumo ? "HUMO" : isUzcard ? "Uzcard" : isVisa ? "VISA" : "Mastercard";
+
   if (testCards.includes(clean)) {
-    return { valid: true, hasFunds: true, brand: clean.startsWith("8600") ? "Uzcard" : clean.startsWith("9860") ? "HUMO" : clean.startsWith("4") ? "VISA" : "Mastercard" };
+    return { valid: true, hasFunds: true, brand: brandName };
   }
 
   if (unfundedCards.includes(clean)) {
-    return { valid: true, hasFunds: false, brand: clean.startsWith("8600") ? "Uzcard" : clean.startsWith("9860") ? "HUMO" : "VISA" };
+    return { valid: true, hasFunds: false, brand: brandName };
   }
 
   // Luhn Algorithm Check
@@ -83,17 +97,17 @@ export const isValidCardNumber = (num: string): CardValidationResult => {
   
   const isLuhnValid = s % 10 === 0;
   if (!isLuhnValid) {
-    return { valid: false, reason: "Karta raqami noto'g'ri (Luhn nazorat xatosi). Iltimos, qayta kiriting." };
+    return { valid: false, reason: "Karta raqami xato (tekshiruvdan o'tmadi). Qayta tekshirib kiriting." };
   }
 
-  // If it's Luhn-valid, we decide hasFunds based on whether the last digit of the card is even (has funds) or odd (insufficient funds)
+  // If Luhn-valid, check funds status
   const lastDigit = parseInt(clean.charAt(clean.length - 1), 10);
   const hasFunds = lastDigit % 2 === 0;
   
   return { 
     valid: true, 
     hasFunds, 
-    brand: clean.startsWith("8600") ? "Uzcard" : clean.startsWith("9860") ? "HUMO" : clean.startsWith("4") ? "VISA" : "Mastercard" 
+    brand: brandName 
   };
 };
 
@@ -130,6 +144,7 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
   const [isEditingMerchant, setIsEditingMerchant] = useState(false);
   const [tempMerchantCard, setTempMerchantCard] = useState("");
   const [tempMerchantName, setTempMerchantName] = useState("");
+  const [simulateNoFunds, setSimulateNoFunds] = useState(false);
 
   // Simulated processing status messages
   const [processingProgress, setProcessingProgress] = useState(0);
@@ -186,8 +201,14 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
       setErrorMsg("");
       setProcessingProgress(0);
       setProcessingMsg("");
+      setSimulateNoFunds(false);
     }
   }, [isOpen]);
+
+  const onSuccessRef = useRef(onSuccess);
+  useEffect(() => {
+    onSuccessRef.current = onSuccess;
+  }, [onSuccess]);
 
   // Satisfying processing animations sequence
   useEffect(() => {
@@ -205,46 +226,49 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
       setProcessingMsg(phrases[0]);
 
       // Determine if there is sufficient funds
-      let hasSufficientFunds = true;
+      let hasSufficientFunds = !simulateNoFunds;
       if (paymentMethod === "card") {
         const cleanCard = cardNumber.replace(/\D/g, "");
         const validation = isValidCardNumber(cleanCard);
-        if (validation.valid && validation.hasFunds === false) {
+        if (validation.valid && (validation.hasFunds === false || simulateNoFunds)) {
           hasSufficientFunds = false;
         }
       }
 
+      let currentProgress = 0;
+
       interval = setInterval(() => {
-        setProcessingProgress((prev) => {
-          const next = prev + 1;
-          
-          // Stop and fail at 50% if there are no funds
-          if (!hasSufficientFunds && next >= 50) {
-            clearInterval(interval);
-            setTimeout(() => {
-              setStep("checkout");
-              setErrorMsg("To'lov rad etildi: Karta hisobida yetarli mablag' mavjud emas (Mablag' yetishmovchiligi xatoligi). Iltimos, kartangiz balansini to'ldiring yoki boshqa faol karta kiriting.");
-            }, 800);
-            return 50;
-          }
+        currentProgress += 2;
+        
+        // Stop and fail at 50% if there are no funds
+        if (!hasSufficientFunds && currentProgress >= 50) {
+          clearInterval(interval);
+          setProcessingProgress(50);
+          setTimeout(() => {
+            setStep("checkout");
+            setErrorMsg("To'lov rad etildi: Karta hisobida yetarli mablag' mavjud emas (Mablag' yetishmovchiligi xatoligi). Iltimos, kartangiz balansini to'ldiring yoki boshqa faol karta kiriting.");
+          }, 800);
+          return;
+        }
 
-          const phraseIdx = Math.min(Math.floor((next / 100) * phrases.length), phrases.length - 1);
-          setProcessingMsg(phrases[phraseIdx]);
+        if (currentProgress >= 100) {
+          clearInterval(interval);
+          setProcessingProgress(100);
+          setProcessingMsg(phrases[phrases.length - 1]);
+          setTimeout(() => {
+            setStep("success");
+            onSuccessRef.current();
+          }, 600);
+          return;
+        }
 
-          if (next >= 100) {
-            clearInterval(interval);
-            setTimeout(() => {
-              setStep("success");
-              onSuccess();
-            }, 600);
-            return 100;
-          }
-          return next;
-        });
+        setProcessingProgress(currentProgress);
+        const phraseIdx = Math.min(Math.floor((currentProgress / 100) * phrases.length), phrases.length - 1);
+        setProcessingMsg(phrases[phraseIdx]);
       }, 40);
     }
     return () => clearInterval(interval);
-  }, [step, paymentMethod, cardNumber, onSuccess]);
+  }, [step]);
 
   if (!isOpen) return null;
 
@@ -277,9 +301,24 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
     }
 
     if (cardExpiry.length < 5) {
-      setErrorMsg("Karta amal qilish muddati noto'g'ri (OY/YIL).");
+      setErrorMsg("Karta amal qilish muddati noto'g'ri (MM/YY formatida kiritishingiz kerak).");
       return;
     }
+    const [expMonthStr, expYearStr] = cardExpiry.split("/");
+    const expMonth = parseInt(expMonthStr, 10);
+    const expYear = parseInt("20" + expYearStr, 10);
+    if (!expMonth || expMonth < 1 || expMonth > 12) {
+      setErrorMsg("Karta amal qilish oyi noto'g'ri (01 va 12 oraliq bo'lishi kerak).");
+      return;
+    }
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    if (isNaN(expYear) || expYear < currentYear || (expYear === currentYear && expMonth < currentMonth)) {
+      setErrorMsg("Karta amal qilish muddati tugagan!");
+      return;
+    }
+
     if (cardCvc.length < 3) {
       setErrorMsg("Karta CVC/CVV kodi noto'g'ri (kamida 3 ta raqam).");
       return;
@@ -590,96 +629,39 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
                 </button>
               </div>
 
-              {/* Qabul qiluvchi (Sotuvchi) Karta Ma'lumotlari */}
-              <div className="p-3.5 bg-[#161619]/90 border border-amber-500/15 rounded-xl space-y-2 text-left text-xs shadow-inner">
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider flex items-center gap-1">
-                    <ShieldCheck className="h-3 w-3 text-amber-500" /> Qabul qiluvchi (Sotuvchi) Karta:
-                  </span>
+              {/* Karta Balansi / Mablag' Simulyatsiyasi Oynasi */}
+              <div className="p-3 bg-[#161619] border border-[#27272a] rounded-xl text-xs text-left flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-inner">
+                <span className="text-[#a1a1aa] font-medium flex items-center gap-1.5">
+                  <ShieldAlert className={`h-4 w-4 ${simulateNoFunds ? "text-rose-500 animate-pulse" : "text-emerald-500"}`} />
+                  Karta balansi holati:
+                </span>
+                <div className="flex gap-1 p-0.5 bg-[#121214] border border-[#27272a] rounded-lg self-start sm:self-auto">
                   <button
                     type="button"
                     onClick={() => {
-                      setTempMerchantCard(merchantCard);
-                      setTempMerchantName(merchantCardName);
-                      setIsEditingMerchant(true);
+                      setSimulateNoFunds(false);
+                      setErrorMsg("");
                     }}
-                    className="text-[10px] text-amber-500 hover:text-amber-400 hover:underline cursor-pointer font-bold transition-all"
+                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold tracking-wide transition-all cursor-pointer ${
+                      !simulateNoFunds
+                        ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                        : "text-[#71717a] hover:text-white"
+                    }`}
                   >
-                    Karta raqamini o'zgartirish
+                    Yetarli Mablag' ✓
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSimulateNoFunds(true)}
+                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold tracking-wide transition-all cursor-pointer ${
+                      simulateNoFunds
+                        ? "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                        : "text-[#71717a] hover:text-white"
+                    }`}
+                  >
+                    Kam (Yetishmaydi) ✗
                   </button>
                 </div>
-                {isEditingMerchant ? (
-                  <div className="space-y-2.5 p-2.5 bg-[#202025] rounded-lg border border-[#2d2d34] animate-fade-in">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-[#8e8e93] uppercase tracking-wide">Karta raqami</label>
-                        <input
-                          type="text"
-                          maxLength={19}
-                          value={tempMerchantCard}
-                          onChange={(e) => {
-                            const v = e.target.value.replace(/\s+/g, "").replace(/[^0-9]/gi, "");
-                            const parts = [];
-                            for (let i = 0; i < v.length; i += 4) {
-                              parts.push(v.substring(i, i + 4));
-                            }
-                            setTempMerchantCard(parts.join(" "));
-                          }}
-                          className="w-full bg-[#121214] border border-[#27272a] focus:border-amber-500 rounded px-2.5 py-1.5 text-xs font-mono text-white tracking-wider outline-none"
-                          placeholder="8600 •••• •••• ••••"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-[#8e8e93] uppercase tracking-wide">Egasining Ismi</label>
-                        <input
-                          type="text"
-                          value={tempMerchantName}
-                          onChange={(e) => setTempMerchantName(e.target.value.toUpperCase())}
-                          className="w-full bg-[#121214] border border-[#27272a] focus:border-amber-500 rounded px-2.5 py-1.5 text-xs text-white uppercase outline-none"
-                          placeholder="Masalan: KOMRON"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex justify-end gap-2 text-[10px]">
-                      <button
-                        type="button"
-                        onClick={() => setIsEditingMerchant(false)}
-                        className="px-2.5 py-1.5 bg-transparent hover:bg-[#2c2c35] rounded-lg text-gray-400 font-medium transition-colors cursor-pointer"
-                      >
-                        Bekor qilish
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const clean = tempMerchantCard.replace(/\D/g, "");
-                          if (clean.length !== 16) {
-                            setErrorMsg("Qabul qiluvchi karta raqami 16 ta raqam bo'lishi kerak!");
-                            return;
-                          }
-                          setMerchantCard(tempMerchantCard);
-                          setMerchantCardName(tempMerchantName || "KOMRON");
-                          localStorage.setItem("velox_merchant_card", tempMerchantCard);
-                          localStorage.setItem("velox_merchant_name", tempMerchantName || "KOMRON");
-                          setIsEditingMerchant(false);
-                          setErrorMsg("");
-                        }}
-                        className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-yellow-500 text-black font-extrabold rounded-lg hover:from-amber-600 hover:to-yellow-600 transition-colors cursor-pointer"
-                      >
-                        Saqlash
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between text-[#ececec] p-2 bg-[#121214] rounded-lg border border-[#232328]">
-                    <div className="flex items-center gap-2">
-                      <div className="h-5 px-1.5 rounded bg-amber-500/10 border border-amber-500/25 flex items-center justify-center font-bold text-[8px] text-amber-500 tracking-wider font-sans uppercase">
-                        {merchantCard.startsWith("9860") ? "HUMO" : merchantCard.startsWith("8600") ? "UZCARD" : "CARD"}
-                      </div>
-                      <span className="font-mono text-xs font-bold tracking-widest text-emerald-400">{merchantCard}</span>
-                    </div>
-                    <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">{merchantCardName}</span>
-                  </div>
-                )}
               </div>
 
               {/* METHOD A: DIRECT PLASTIC CARD DEBIT GATEWAY */}
@@ -981,7 +963,7 @@ export default function PremiumModal({ isOpen, onClose, onSuccess }: PremiumModa
                   </div>
                   <div className="flex justify-between">
                     <span>Qabul qiluvchi:</span>
-                    <span className="text-white font-medium">{merchantCardName} ({merchantCard})</span>
+                    <span className="text-white font-medium">{merchantCardName}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Tranzaksiya turi:</span>
