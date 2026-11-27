@@ -4,7 +4,8 @@ import {
   Languages, 
   PenTool, 
   FileText, 
-  Briefcase 
+  Briefcase,
+  Palette 
 } from "lucide-react";
 import { SystemPreset } from "../types";
 import { PRESETS } from "../data/presets";
@@ -23,6 +24,8 @@ export default function AIPresetSelector({
     switch (iconName) {
       case "Sparkles":
         return <Sparkles className={className} />;
+      case "Palette":
+        return <Palette className={className} />;
       case "Code":
         return <Code className={className} />;
       case "Languages":

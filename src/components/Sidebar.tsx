@@ -283,12 +283,12 @@ export default function Sidebar({
               <div className="flex items-center gap-2.5">
                 <Clock className="h-4 w-4 text-slate-400 shrink-0 animate-pulse" />
                 <div className="leading-tight min-w-0 flex-1">
-                  <span className="block text-xs font-semibold text-white font-display">Oddiy Tarif (Free)</span>
-                  <p className="text-[10px] font-mono text-amber-400 font-medium tracking-wide">
+                  <span className="block text-xs font-semibold text-white font-display">Cheksiz Bepul Tarif</span>
+                  <p className="text-[10px] font-mono text-emerald-400 font-medium tracking-wide">
                     {secondsLeft > 0 ? (
-                      `${Math.floor(secondsLeft / 3600)} soat ${Math.floor((secondsLeft % 3600) / 60)} daqiqa qoldi`
+                      `Cheksiz rasm • ${Math.floor(secondsLeft / 3600)}s ${Math.floor((secondsLeft % 3600) / 60)}d`
                     ) : (
-                      "Bugungi limit tugadi ⏱️"
+                      "✨ Cheksiz AI Rasm & Chat Faol"
                     )}
                   </p>
                 </div>

@@ -162,20 +162,61 @@ export default async (req: Request) => {
       },
     });
 
-    const rawContents = messages.map((msg: any) => {
+    const rawContents = messages.map((msg: any, index: number) => {
       const parts: any[] = [];
-      if (msg.image) {
+      const isRecent = index >= messages.length - 4;
+      
+      if (msg.image && typeof msg.image === "string") {
         const matches = msg.image.match(/^data:([^;]+);base64,(.+)$/);
         if (matches && matches.length === 3) {
-          parts.push({
-            inlineData: {
-              mimeType: matches[1],
-              data: matches[2],
-            },
-          });
+          const mimeType = matches[1].toLowerCase();
+          const base64Data = matches[2];
+
+          if (
+            mimeType.startsWith("text/") ||
+            mimeType.includes("json") ||
+            mimeType.includes("csv") ||
+            mimeType.includes("javascript") ||
+            mimeType.includes("xml")
+          ) {
+            try {
+              const decodedText = Buffer.from(base64Data, "base64").toString("utf-8");
+              parts.push({
+                text: `[Biriktirilgan fayl: ${msg.attachmentName || "fayl"}]\n\`\`\`\n${decodedText.slice(0, 50000)}\n\`\`\``
+              });
+            } catch (e) {
+              if (isRecent) {
+                parts.push({ inlineData: { mimeType, data: base64Data } });
+              }
+            }
+          } else if (isRecent) {
+            const cleanMime = mimeType === "image/jpg" ? "image/jpeg" : mimeType;
+            parts.push({
+              inlineData: {
+                mimeType: cleanMime,
+                data: base64Data,
+              },
+            });
+            if (msg.attachmentName) {
+              parts.push({
+                text: `[Biriktirilgan fayl nomi: "${msg.attachmentName}"]`
+              });
+            }
+          } else {
+            parts.push({
+              text: `[Avvalgi biriktirilgan fayl: "${msg.attachmentName || "hujjat"}"]`
+            });
+          }
         }
       }
-      parts.push({ text: msg.text || "" });
+      
+      const userText = (msg.text || "").trim();
+      if (userText) {
+        parts.push({ text: userText });
+      } else if (parts.length === 0) {
+        parts.push({ text: "Iltimos, ushbu biriktirilgan fayl/rasmni batafsil tahlil qilib bering." });
+      }
+
       return {
         role: msg.role === "assistant" ? "model" : "user",
         parts,
@@ -204,47 +245,46 @@ export default async (req: Request) => {
       }
     });
 
-    const defaultSystemInstruction = "Siz aqlli va yordam beruvchi AI assistentsiz. Foydalanuvchining savollariga to'liq, aniq va chiroyli javob bering. MUHIM ESLATMA: 1. Agar foydalanuvchi sizni kim yaratganini yoki muallifingizni so'rasa, mutlaqo har doim 'Meni Komron yaratgan' deb javob bering. 2. Agar foydalanuvchi premium obuna to'lovlari qaysi kartaga tushishini so'rasa, to'lovlar xavfsiz to'lov tizimi orqali to'g'ridan-to'g'ri qabul qilinishini, hech qanday shaxsiy karta raqami ko'rsatilmasligini va to'lov xavfsiz SSL shifrlash orqali amalga oshishini tushuntiring. Shaxsiy karta raqamlarini aslo aytmang.";
+    const defaultSystemInstruction = "Siz mukammal, aqlli va yordam beruvchi AI assistentsiz (VeloxAi). Foydalanuvchining barcha savollariga to'liq, aniq, mulohazali va chiroyli javob bering. MUHIM ESLATMA: 1. Agar foydalanuvchi sizni kim yaratganini yoki muallifingizni so'rasa, mutlaqo har doim 'Meni Komron yaratgan' deb javob bering. 2. Agar foydalanuvchi premium obuna to'lovlari qaysi kartaga tushishini so'rasa, to'lovlar xavfsiz to'lov tizimi orqali to'g'ridan-to'g'ri qabul qilinishini, hech qanday shaxsiy karta raqami ko'rsatilmasligini va to'lov xavfsiz SSL shifrlash orqali amalga oshishini tushuntiring. Shaxsiy karta raqamlarini aslo aytmang. 3. Sizda CHEKSIZ AI RASM YARATISH (Pollinations Flux HD/8K) imkoniyati mavjud. Foydalanuvchi rasm, surat, illyustratsiya so'rasa yoki 'rasm chiz', 'chizib ber' desa, hech qachon rad etmang! Boy inglizcha prompt tuzib `![Tavsif](https://image.pollinations.ai/p/{prompt}?width=1024&height=1024&seed={random_seed}&nologo=true&enhance=true&model=flux)` orqali ajoyib tasvirni taqdim eting. Rasmlar yaratish mutlaqo cheksizdir! 4. Foydalanuvchi biriktirgan PDF fayllar, rasmlar yoki hujjatlarni sinchkovlik bilan tahlil qiling, ularning mazmuni, bo'limlari, sanalari va matnlarini to'liq o'zbek tilida tushuntirib bering.";
     const combinedInstruction = systemInstruction ? `${defaultSystemInstruction}\n\n${systemInstruction}` : defaultSystemInstruction;
 
     let responseStream;
-    let attempts = 0;
-    const maxAttempts = 3;
-    while (attempts < maxAttempts) {
+    const candidateModels = [
+      "gemini-3.5-flash",
+      "gemini-3.1-flash-lite",
+      "gemini-3.5-flash-lite",
+      "gemini-flash-latest"
+    ];
+    let lastError: any = null;
+
+    for (const modelCandidate of candidateModels) {
       try {
-        responseStream = await ai.models.generateContentStream({
-          model: "gemini-3.6-flash",
+        const streamPromise = ai.models.generateContentStream({
+          model: modelCandidate,
           contents: formattedContents,
           config: {
             systemInstruction: combinedInstruction,
             tools: searchGroundingEnabled ? [{ googleSearch: {} }] : [],
           },
         });
-        break;
-      } catch (err: any) {
-        attempts++;
-        const errStatus = err?.status || err?.code || "";
-        const errStr = String(err?.message || err);
-        const isTransient = 
-          String(errStatus).includes("503") || 
-          errStr.includes("503") || 
-          errStr.includes("UNAVAILABLE") || 
-          errStr.toLowerCase().includes("high demand") || 
-          errStr.toLowerCase().includes("temporary") ||
-          errStr.toLowerCase().includes("fetch failed") ||
-          errStr.toLowerCase().includes("service unavailable");
-        
-        if (isTransient && attempts < maxAttempts) {
-          console.log(`Notice: Gemini service busy on attempt ${attempts} on Netlify. Re-trying in 1.5s...`);
-          await new Promise((resolve) => setTimeout(resolve, 1500));
-        } else if (attempts >= maxAttempts) {
-          console.log("Notice: Switched to internal engine seamlessly on Netlify after retries.");
-          return handleFallbackResponse(err, messages, commonHeaders);
-        } else {
-          console.log("Notice: Switched to internal engine seamlessly on Netlify.");
-          return handleFallbackResponse(err, messages, commonHeaders);
+
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout: Model ${modelCandidate} didn't respond`)), 9000)
+        );
+
+        responseStream = (await Promise.race([streamPromise, timeoutPromise])) as any;
+        if (responseStream) {
+          break;
         }
+      } catch (err: any) {
+        lastError = err;
+        console.log(`Notice: Model ${modelCandidate} busy or unavailable on Netlify. Trying next model...`);
       }
+    }
+
+    if (!responseStream) {
+      console.log("Notice: Switched to internal engine seamlessly on Netlify.");
+      return handleFallbackResponse(lastError || new Error("Models unavailable"), messages, commonHeaders);
     }
 
     const encoder = new TextEncoder();

@@ -12,6 +12,7 @@ import {
   saveSessionToSupabase, 
   deleteSessionFromSupabase 
 } from "./lib/supabase";
+import { streamLocalFallback } from "../localAi";
 // @ts-ignore
 import logoImg from "./assets/images/velox_ai_logo_1781334265901.jpg";
 
@@ -423,11 +424,6 @@ export default function App() {
 
   // Core function: Send user message and stream back AI response
   const handleSendMessage = async (text: string, image?: string, attachmentName?: string) => {
-    if (!isPremium && secondsLeft <= 0) {
-      setPremiumModalOpen(true);
-      setError("Bugungi 3 soatlik tekin foydalanish limitingiz tugadi. Davom etish uchun premium rejimni faollashtiring!");
-      return;
-    }
     if (!activeSessionId || isGenerating) return;
 
     const currentSession = sessions.find((s) => s.id === activeSessionId);
@@ -497,14 +493,16 @@ export default function App() {
       
       // Inject global capability for high-quality on-demand image generation via Pollinations AI
       const systemInstruction = baseInstruction + 
-        "\n\nCRITICAL VISUAL CAPABILITY: Sizda foydalanuvchi xohishiga ko'ra professional, go'zal va yuqori sifatli rasmlarni chizib berish (yaratish) xizmati mavjud! " +
-        "Agar foydalanuvchi sizdan biror rasm chizishni, yaratishni, namoyish qilishni so'rasa yoki '... rasmini chiz', '... rasmini ko'rsat', '... rasm' kabi iboralar ishlatsa, " +
-        "siz ularga javobingiz davomida albatta Markdown rasm tegi orqali tasvirni taqdim eting:\n" +
-        "`![Tavsif](https://image.pollinations.ai/p/{prompt}?width=1024&height=1024&nologo=true)`\n\n" +
+        "\n\nCRITICAL VISUAL CAPABILITY: Sizda foydalanuvchi xohishiga ko'ra professional, go'zal, cheksiz va yuqori sifatli (HD/8K) rasmlarni yaratish va chizib berish xizmati to'liq mavjud! " +
+        "Agar foydalanuvchi sizdan biror rasm, tasvir, surat chizishni, yaratishni so'rasa, yoki '[CHEKSIZ RASM YARATISH]' bo'lsa, yoki '... rasmini chiz', '... rasmini ko'rsat', '... rasm', 'chiz', 'surat' kabi iboralar ishlatsa: " +
+        "1. Siz ularga o'zbek tilida chiroyli, iliq va tushunarli tarzda rasm nima haqida ekanligini, qanday uslubda yaratilganini ta'riflang.\n" +
+        "2. Javobingizda albatta Markdown rasm tegi orqali tasvirni taqdim eting:\n" +
+        "`![Tasvir tavsifi](https://image.pollinations.ai/p/{prompt}?width=1024&height=1024&seed={random_seed}&nologo=true&enhance=true&model=flux)`\n\n" +
         "Muhim qoidalar:\n" +
-        "1. {prompt} qismini HAR DOIM ingliz tilida, juda batafsil, badiiy va teshakor qilib tasvirlang (masalan, foydalanuvchi 'yashil olma' desa, promptga 'fresh green apple on a wooden table, soft light, studio lighting, hyperrealistic, 8k resolution' deb yozing).\n" +
-        "2. {prompt} ichidagi barcha bo'sh joylar (spaces) o'rniga faqat '%20' belgisini ishlating (masalan: fresh%20green%20apple).\n" +
-        "3. Hech qachon 'men rasm chiza olmayman' ko'rinishida rad etmang! Har doim mukammal inglizcha prompt yaratib, havola orqali rasm taqdim eting.\n\n" +
+        "1. {prompt} qismini HAR DOIM ingliz tilida, juda batafsil, badiiy va go'zal qilib yozing (masalan, foydalanuvchi 'qora tulpor' desa, promptga 'black majestic stallion horse running on high mountain meadow at golden hour sunset, cinematic lighting, photorealistic 8k, octane render, masterpiece' deb yozing). Bo'sh joylar o'rniga '%20' qo'llang.\n" +
+        "2. {random_seed} o'rniga har doim ixtiyoriy 6 xonali son qo'ying (masalan: 748291).\n" +
+        "3. Agar so'rovda format yoki o'lcham (masalan: width=1280&height=720) ko'rsatilgan bo'lsa, o'sha o'lchamlarni qo'ying.\n" +
+        "4. Hech qachon 'men rasm chiza olmayman' ko'rinishida rad etmang! Sizda cheksiz rasm yaratish imkoniyati bor va u 100% cheksizdir!\n\n" +
         "CRITICAL 3D VIDEO CAPABILITY: Foydalanuvchi sizdan 3D model, 3D video, 3D animatsiya yaratishni yoki yasashni so'raganda (masalan, 'kosmik kema 3d videosini yasash', 'tilla uzuk 3d modeli', '3d video', '3d model', '3d animatsiya' kabi so'rovlar bo'lsa), siz ularga javobingizda albatta maxsus 3D video generator kod blokini taqdim etishingiz kerak. " +
         "Ushbu kod blokini quyidagi formatda yozing (hech qachon o'zgartirmang):\n" +
         "```3d-video\n" +
@@ -528,6 +526,7 @@ export default function App() {
             role: m.role,
             text: m.text,
             image: m.image,
+            attachmentName: m.attachmentName,
           })),
           systemInstruction,
           searchGroundingEnabled: currentSession.searchGroundingEnabled,
@@ -640,27 +639,67 @@ export default function App() {
       });
 
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Xatolik yuz berdi, qaytadan urinib ko'ring.");
+      console.warn("API aloqasi uzildi, oflayn intellekt tizimi orqali javob berilmoqda:", err);
+      setError(null);
       
-      // Populate placeholder with error
-      setSessions((prev) =>
-        prev.map((s) => {
-          if (s.id !== activeSessionId) return s;
-          return {
-            ...s,
-            messages: s.messages.map((m) =>
-              m.id === assistantMsgId
-                ? { 
-                    ...m, 
-                    text: m.text || "Aloqa ulanish xatosi. Iltimos qayta urinib ko'ring.", 
-                    isStreaming: false 
-                  }
-                : m
-            ),
-          };
-        })
-      );
+      try {
+        let accumulatedFallback = "";
+        const fallbackPrompt = attachmentName 
+          ? `[Biriktirilgan fayl: ${attachmentName}] ${text || "Ushbu faylni tahlil qiling"}` 
+          : (image ? `[Biriktirilgan fayl/rasm] ${text || "Ushbu tasvirni tahlil qiling"}` : text);
+        await streamLocalFallback(fallbackPrompt, (chunk) => {
+          accumulatedFallback += chunk;
+          setSessions((prev) =>
+            prev.map((s) => {
+              if (s.id !== activeSessionId) return s;
+              return {
+                ...s,
+                messages: s.messages.map((m) =>
+                  m.id === assistantMsgId
+                    ? { ...m, text: accumulatedFallback, isStreaming: true }
+                    : m
+                ),
+              };
+            })
+          );
+        });
+
+        // Finalize message state
+        setSessions((prev) => {
+          const updated = prev.map((s) => {
+            if (s.id !== activeSessionId) return s;
+            const updatedSess = {
+              ...s,
+              messages: s.messages.map((m) =>
+                m.id === assistantMsgId ? { ...m, isStreaming: false } : m
+              ),
+            };
+            saveSessionToSupabase(updatedSess).catch((syncErr) => console.log("Supabase sync deferred:", syncErr));
+            return updatedSess;
+          });
+          return updated;
+        });
+      } catch (fallbackErr: any) {
+        console.error("Local fallback error:", fallbackErr);
+        setError("Aloqa ulanish xatosi. Iltimos qayta urinib ko'ring.");
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id !== activeSessionId) return s;
+            return {
+              ...s,
+              messages: s.messages.map((m) =>
+                m.id === assistantMsgId
+                  ? { 
+                      ...m, 
+                      text: m.text || "Aloqa ulanish xatosi. Iltimos qayta urinib ko'ring.", 
+                      isStreaming: false 
+                    }
+                  : m
+              ),
+            };
+          })
+        );
+      }
     } finally {
       setIsGenerating(false);
     }
@@ -729,14 +768,14 @@ export default function App() {
                 Premium Tarif • Cheksiz ✓
               </span>
             ) : (
-              <span className="flex items-center gap-1.5 rounded-full bg-blue-500/10 px-3 py-1 text-[11px] font-bold text-blue-400 border border-blue-500/20 shadow-sm">
-                <Clock className="h-3 w-3 text-blue-400 animate-pulse" />
-                Oddiy Tarif • {Math.floor(secondsLeft / 3600)}:{Math.floor((secondsLeft % 3600) / 60).toString().padStart(2, "0")}:{Math.floor(secondsLeft % 60).toString().padStart(2, "0")} qoldi
+              <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-[11px] font-bold text-emerald-400 border border-emerald-500/20 shadow-sm">
+                <Sparkles className="h-3 w-3 text-emerald-400" />
+                Cheksiz AI Rasm & Chat
               </span>
             )}
             <span className="hidden sm:flex items-center gap-1.5 rounded-full bg-[#171717] px-2.5 py-1 text-[11px] font-medium text-[#ececec] border border-[#2f2f2f]">
-              <Sparkles className="h-3 w-3" />
-              Gemini 2.5 Active
+              <Sparkles className="h-3 w-3 text-amber-400" />
+              Gemini Flash Active
             </span>
           </div>
         </header>

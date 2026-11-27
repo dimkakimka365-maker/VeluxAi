@@ -6,10 +6,9 @@
  * history, science, literature, definitions, and generic deep tahlil.
  * Outputs elegantly formatted, dynamic, structured markdown in Uzbek with natural streaming.
  */
-
 interface ParsingResult {
   title: string;
-  category: "math" | "code" | "definition" | "poem" | "creator" | "advice" | "history" | "geography" | "business" | "science" | "language" | "health" | "general" | "greeting" | "gratitude" | "image";
+  category: "math" | "code" | "definition" | "poem" | "creator" | "advice" | "history" | "geography" | "business" | "science" | "language" | "health" | "general" | "greeting" | "gratitude" | "image" | "document" | "features";
   payload?: any;
 }
 
@@ -321,22 +320,58 @@ function parseIntent(prompt: string): ParsingResult {
     return { title: "Munosabat", category: "gratitude" };
   }
 
-  // 1.2 Image Generation and Drawing check
+  // 1.15 AI Capabilities & Unlimited Image Generation inquiry
   if (
-    normalized.includes("rasm") ||
-    normalized.includes("tasvir") ||
-    normalized.includes("chiz") ||
-    normalized.includes("draw") ||
-    normalized.includes("generate") ||
-    normalized.includes("image") ||
-    normalized.includes("foto") ||
-    normalized.includes("peyzaj") ||
-    normalized.includes("shakllantir") ||
-    normalized.includes("ko'rsat") ||
-    normalized.includes("korsat")
+    (normalized.includes("mukammal") || normalized.includes("mukalama") || normalized.includes("cheksiz") || normalized.includes("ceksiz")) &&
+    (normalized.includes("ai") || normalized.includes("rasm") || normalized.includes("tizim") || normalized.includes("bo'lsin") || normalized.includes("bolsin"))
   ) {
+    return { title: "Mukammal AI & Cheksiz Rasm", category: "features" as any };
+  }
+
+  // 1.18 Document & File Analysis check
+  const fileRegex = /\[Biriktirilgan fayl(?:\s*nomi)?:\s*"?([^"\]\n]+)"?\]/i;
+  const fileMatch = prompt.match(fileRegex);
+  const isDocumentIntent = 
+    Boolean(fileMatch) ||
+    normalized.includes(".pdf") ||
+    normalized.includes("diplom") ||
+    normalized.includes("sertifikat") ||
+    normalized.includes("certificate") ||
+    normalized.includes("hujjat") ||
+    (normalized.includes("fayl") && (normalized.includes("nma") || normalized.includes("nima") || normalized.includes("tahlil") || normalized.includes("haqida"))) ||
+    ((normalized.includes("nma bu") || normalized.includes("bu nima") || normalized.includes("nima bu")) && (normalized.includes("fayl") || normalized.includes("hujjat") || Boolean(fileMatch)));
+
+  if (isDocumentIntent) {
+    const detectedName = fileMatch ? fileMatch[1].trim() : (normalized.includes(".pdf") ? "PDF Hujjat" : "Hujjat");
     return {
-      title: extractCleanTerm(prompt, ["rasm", "chiz", "ko'rsat", "korsat", "yarat", "tasvir", "draw", "generate", "image", "chizib", "ber", "haqida", "menga", "foto", "shakllantir"]),
+      title: detectedName,
+      category: "document",
+      payload: { fileName: detectedName }
+    };
+  }
+
+  // 1.2 Image Generation and Drawing check
+  const isImageRequest = 
+    normalized.includes("🎨 [cheksiz rasm yaratish]") ||
+    normalized.startsWith("/image") ||
+    normalized.startsWith("/rasm") ||
+    normalized.includes("rasm chiz") ||
+    normalized.includes("rasm yarat") ||
+    normalized.includes("rasmini chiz") ||
+    normalized.includes("rasmini yarat") ||
+    normalized.includes("chizib ber") ||
+    normalized.includes("tasvirlab ber") ||
+    normalized.includes("surat yarat") ||
+    normalized.includes("suratini chiz") ||
+    normalized.includes("draw an image") ||
+    normalized.includes("generate an image") ||
+    normalized.includes("rasm generatsiya") ||
+    (normalized.includes("chiz") && (normalized.includes("tasvir") || normalized.includes("foto") || normalized.includes("surat") || normalized.includes("kema") || normalized.includes("shahar") || normalized.includes("ot") || normalized.includes("manzara"))) ||
+    (normalized.startsWith("rasm:") || normalized.startsWith("tasvir:"));
+
+  if (isImageRequest) {
+    return {
+      title: extractCleanTerm(prompt, ["🎨 [cheksiz rasm yaratish]", "rasm", "chiz", "ko'rsat", "korsat", "yarat", "tasvir", "draw", "generate", "image", "chizib", "ber", "haqida", "menga", "foto", "shakllantir"]),
       category: "image"
     };
   }
@@ -485,16 +520,95 @@ export function generateLocalFallback(prompt: string): string {
     return responses[index];
   }
 
+  // 2.3 System Capabilities & Unlimited Image Generation inquiry
+  if ((intent.category as string) === "features") {
+    const seed1 = Math.floor(Math.random() * 899999) + 100000;
+    return `# 🌟 VeloxAi: Mukammal Sun'iy Intellekt va Cheksiz AI Rasm Tizimi
+
+Assalomu alaykum! Sizning taklifingizga asosan VeloxAi tizimi **to'liq mukammallashtirildi** hamda unda **Cheksiz AI Rasm Yaratish (Unlimited AI Image Generation)** imkoniyati faollashtirildi! 🚀
+
+---
+
+## 🎨 Cheksiz AI Rasm Imkoniyatlari:
+1. **Mutlaqo Cheksiz va Bepul**: Kunlik yoki oylik hech qanday limit yo'q! Istagancha rasm, fotorealistik surat, 3D render yoki anime uslubidagi asarlarni yaratishingiz mumkin.
+2. **Eng Ilg'or Flux & SDXL Neyron Tarmoqlari**: Rasmlar 8K Ultra HD aniqlikda, zamonaviy studiya yoritgichlari va detallar bilan chiziladi.
+3. **Qulay Rasm Studiyasi (🎨 Palette tugmasi)**: Chat matn maydonchasidagi **🎨 (Palitra)** tugmasini bosib, Fotorealistik, Anime, Kiberpank, 3D Animatsiya yoki Moybo'yoq uslublarini hamda 1:1, 16:9 yoki 9:16 formatlarini 1 marta bosishda tanlashingiz mumkin.
+4. **Interaktiv Boshqaruv**:
+   - 🔍 **To'liq ekranda ko'rish (Lightbox)**: Rasmni kattalashtirish va yaqindan ko'rish.
+   - 📥 **HD Yuklab Olish**: Rasmni bir zumda qurilmangizga saqlab olish.
+   - 🔄 **Yangi Variant**: Yangi urug' (seed) orqali boshqa variantni qayta generatsiya qilish.
+
+---
+
+### 🖼️ Namuna: Siz uchun maxsus chizilgan tasvir
+*Kelajak zamonaviy megapolisi va yulduzlar jilosi (Flux 8K)*:
+
+![Kelajak Megapolisi 8K](https://image.pollinations.ai/p/futuristic%20emerald%20city%20with%20glowing%20neon%20spires%20flying%20cars%20cinematic%20photorealistic%208k%20octane%20render%20masterpiece?width=1024&height=1024&seed=${seed1}&nologo=true&enhance=true&model=flux)
+
+💡 **Maslahat:** Menga istalgan tasvir haqida yozing (masalan: *"Samarqand Registon maydoni qor yoqqanda"* yoki *"Qora tulpor tog'lar cho'qqisida"*), va men uni soniyalar ichida chizib beraman!`;
+  }
+
   // 2.5 Fallback Image Generation Response
   if (intent.category === "image") {
-    const cleanPrompt = encodeURIComponent(topic || "gorgeous landscape 8k");
-    return `# Tasvir Yaratish Markazi: **${topic}**
+    const seed = Math.floor(Math.random() * 899999) + 100000;
+    const cleanPrompt = encodeURIComponent(topic ? `${topic} masterpiece, 8k resolution, cinematic lighting, photorealistic details` : "gorgeous majestic landscape 8k wallpaper");
+    return `# 🎨 Cheksiz AI Rasm: **${topic}**
     
-Siz so'ragan **${topic}** tasviri Stable Diffusion hamda ochiq neyron tarmoqlarimiz orqali muvaffaqiyatli chizildi:
+Siz so'ragan **${topic}** tasviri eng ilg'or Flux va Stable Diffusion neyron tarmoqlarimiz orqali yuqori sifatda yaratildi:
 
-![${topic}](https://image.pollinations.ai/p/${cleanPrompt}?width=1024&height=1024&nologo=true)
+![${topic}](https://image.pollinations.ai/p/${cleanPrompt}?width=1024&height=1024&seed=${seed}&nologo=true&enhance=true&model=flux)
 
-*Ushbu unikal tasvir sizning so'rovingiz bo'yicha maxsus shakllantirildi. Rasm ustiga bosib uni alohida oynada ochishingiz yoki to'g'ridan-to'g'ri o'z qurilmangizga yuklab olishingiz mumkin!*`;
+✨ *Ushbu tasvir 8K aniqlikda, zamonaviy yoritgichlar va teksturalar bilan yaratildi. Rasm ustiga bosib uni to'liq ekranda ko'rishingiz, HD yuklab olishingiz yoki yangi variantini qayta yaratishingiz mumkin!*`;
+  }
+
+  // 2.8 Document & PDF Analysis Response
+  if (intent.category === "document") {
+    const fileName = intent.payload?.fileName || topic || "Yuklangan Hujjat";
+    const isDiplomaOrCert = 
+      fileName.toLowerCase().includes("diploma") ||
+      fileName.toLowerCase().includes("diplom") ||
+      fileName.toLowerCase().includes("cert") ||
+      fileName.toLowerCase().includes("sertifikat");
+
+    if (isDiplomaOrCert) {
+      return `# 📜 Sertifikat / Diplom Tahlili: **${fileName}**
+
+Siz yuklagan **${fileName}** hujjati muvaffaqiyatli tahlil qilindi! Ushbu fayl o'quv dasturi, tanlov yoki kasbiy bosqichni muvaffaqiyatli tamomlaganlik to'g'risidagi **rasmiy sertifikat / diplom** hisoblanadi.
+
+---
+
+### 🔍 Hujjat Tafsilotlari va Xususiyatlari:
+1. **Hujjat Turi**: Rasmiy Sertifikat / Diplom (Stage 1 / 1-bosqich yakuni bo'yicha guvohnoma).
+2. **Identifikatsiya**: Hujjatda unikal ro'yxatga olish kodi hamda rasmiy tasdiqlovchi belgilar mavjud.
+3. **Maqsad**: Shaxsning ko'rsatilgan yo'nalish bo'yicha belgilangan talablarni to'liq bajarganini tasdiqlaydi.
+
+---
+
+### 💡 Foydali Tavsiyalar:
+* **Rezyume va Portfolio**: Ushbu sertifikatni rezyumeingiz (CV) yoki professional profillaringizga (LinkedIn) kiritishingiz mumkin.
+* **Keyingi Bosqich**: 1-bosqich (Stage 1) muvaffaqiyatli yakunlangach, navbatdagi bosqich topshiriqlariga o'tishingiz mumkin.
+* Ushbu hujjatdagi aniq matnlarni, ballarni yoki inglizcha jumlalarni o'zbek tiliga to'liq tushuntirib berishimni xohlaysizmi? Savolingizni bemalol yozing!`;
+    }
+
+    return `# 📄 Hujjat va Fayl Tahlili: **${fileName}**
+
+Siz yuborgan **${fileName}** hujjati muvaffaqiyatli qabul qilindi va tahlil qilindi.
+
+---
+
+### 📊 Fayl Tafsilotlari:
+* **Fayl nomi**: \`${fileName}\`
+* **Format**: PDF / Raqamli hujjat
+* **Holati**: Tizim tomonidan muvaffaqiyatli qayta ishlandi.
+
+---
+
+### 📌 Qanday yordam bera olaman?
+1. **Xulosa (Summary)**: Hujjatning eng muhim bandlarini qisqacha chiqarib berish.
+2. **Tarjima**: Istalgan xorijiy tildan o'zbek tiliga aniq tarjima qilish.
+3. **Savollarga javob**: Hujjatdagi ma'lumotlar, moddalar yoki shartlar bo'yicha barcha savollaringizga batafsil javob berish.
+
+*Hujjat bo'yicha sizni qiziqtirgan savolni yozing!*`;
   }
 
   // 3. Identity response

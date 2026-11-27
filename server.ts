@@ -13,6 +13,17 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
+// Global CORS configuration for safe cross-origin iframe and preview access
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 // Maximum payload size for handling images in base64
 app.use(express.json({ limit: "20mb" }));
 
@@ -199,7 +210,7 @@ app.post("/api/chat", async (req, res) => {
       res.setHeader("Connection", "keep-alive");
       res.setHeader("X-Accel-Buffering", "no");
       
-      const systemNotice = `> ⚠️ **TIZIM ESLATMASI (KALIT SOZLANMAGAN)** \n> Bepul va tezkor to'liq aqlli Gemini 3.6-Flash modeliga ulanish uchun: ekranning o'ng tepasidagi **Settings > Secrets** panelida o'z kalitingizni (**GEMINI_API_KEY**) kiriting. \n> *Hozirda sizga VeloxAi Oflayn/Fallback hamrohi orqali javob yozilmoqda:*\n\n---\n\n`;
+      const systemNotice = `> ⚠️ **TIZIM ESLATMASI (KALIT SOZLANMAGAN)** \n> Bepul va tezkor to'liq aqlli Gemini Flash modeliga ulanish uchun: ekranning o'ng tepasidagi **Settings > Secrets** panelida o'z kalitingizni (**GEMINI_API_KEY**) kiriting. \n> *Hozirda sizga VeloxAi Oflayn/Fallback hamrohi orqali javob yozilmoqda:*\n\n---\n\n`;
       res.write(`data: ${JSON.stringify({ text: systemNotice })}\n\n`);
 
       const userPrompt = messages && messages.length > 0 
@@ -216,25 +227,67 @@ app.post("/api/chat", async (req, res) => {
     // Format messages into the structure expected by @google/genai:
     // role: "user" | "model"
     // parts: [{ text: string } | { inlineData: { mimeType: string, data: string } }]
-    const rawContents = messages.map((msg: any) => {
+    // Format messages into the structure expected by @google/genai:
+    // role: "user" | "model"
+    // parts: [{ text: string } | { inlineData: { mimeType: string, data: string } }]
+    const rawContents = messages.map((msg: any, index: number) => {
       const parts: any[] = [];
+      const isRecent = index >= messages.length - 4; // Keep heavy inlineData on recent messages
       
-      // If there is an image attachment, include it first
-      if (msg.image) {
-        // Expected format: data:image/png;base64,iVBORw0KGgo...
+      // If there is an image or file attachment, process it
+      if (msg.image && typeof msg.image === "string") {
         const matches = msg.image.match(/^data:([^;]+);base64,(.+)$/);
         if (matches && matches.length === 3) {
-          parts.push({
-            inlineData: {
-              mimeType: matches[1],
-              data: matches[2],
-            },
-          });
+          const mimeType = matches[1].toLowerCase();
+          const base64Data = matches[2];
+
+          // If text-based document (txt, json, csv, code), decode as text directly
+          if (
+            mimeType.startsWith("text/") ||
+            mimeType.includes("json") ||
+            mimeType.includes("csv") ||
+            mimeType.includes("javascript") ||
+            mimeType.includes("xml")
+          ) {
+            try {
+              const decodedText = Buffer.from(base64Data, "base64").toString("utf-8");
+              parts.push({
+                text: `[Biriktirilgan fayl: ${msg.attachmentName || "fayl"}]\n\`\`\`\n${decodedText.slice(0, 50000)}\n\`\`\``
+              });
+            } catch (e) {
+              if (isRecent) {
+                parts.push({ inlineData: { mimeType, data: base64Data } });
+              }
+            }
+          } else if (isRecent) {
+            // Standardize MIME type for images and PDFs
+            const cleanMime = mimeType === "image/jpg" ? "image/jpeg" : mimeType;
+            parts.push({
+              inlineData: {
+                mimeType: cleanMime,
+                data: base64Data,
+              },
+            });
+            if (msg.attachmentName) {
+              parts.push({
+                text: `[Biriktirilgan fayl nomi: "${msg.attachmentName}"]`
+              });
+            }
+          } else {
+            parts.push({
+              text: `[Avvalgi biriktirilgan fayl: "${msg.attachmentName || "hujjat"}"]`
+            });
+          }
         }
       }
       
-      // Add text part
-      parts.push({ text: msg.text || "" });
+      // Add text part (avoid empty text which causes Gemini 400 error)
+      const userText = (msg.text || "").trim();
+      if (userText) {
+        parts.push({ text: userText });
+      } else if (parts.length === 0) {
+        parts.push({ text: "Iltimos, ushbu biriktirilgan fayl/rasmni batafsil tahlil qilib bering." });
+      }
 
       return {
         role: msg.role === "assistant" ? "model" : "user",
@@ -273,44 +326,50 @@ app.post("/api/chat", async (req, res) => {
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
 
-    const defaultSystemInstruction = "Siz aqlli va yordam beruvchi AI assistentsiz. Foydalanuvchining savollariga to'liq, aniq va chiroyli javob bering. MUHIM ESLATMA: 1. Agar foydalanuvchi sizni kim yaratganini yoki muallifingizni so'rasa, mutlaqo har doim 'Meni Komron yaratgan' deb javob bering. 2. Agar foydalanuvchi premium obuna to'lovlari qaysi kartaga tushishini so'rasa, to'lovlar xavfsiz to'lov tizimi orqali to'g'ridan-to'g'ri qabul qilinishini, hech qanday shaxsiy karta raqami ko'rsatilmasligini va to'lov xavfsiz SSL shifrlash orqali amalga oshishini tushuntiring. Shaxsiy karta raqamlarini aslo aytmang.";
+    const defaultSystemInstruction = "Siz mukammal, aqlli va yordam beruvchi AI assistentsiz (VeloxAi). Foydalanuvchining barcha savollariga to'liq, aniq, mulohazali va chiroyli javob bering. MUHIM ESLATMA: 1. Agar foydalanuvchi sizni kim yaratganini yoki muallifingizni so'rasa, mutlaqo har doim 'Meni Komron yaratgan' deb javob bering. 2. Agar foydalanuvchi premium obuna to'lovlari qaysi kartaga tushishini so'rasa, to'lovlar xavfsiz to'lov tizimi orqali to'g'ridan-to'g'ri qabul qilinishini, hech qanday shaxsiy karta raqami ko'rsatilmasligini va to'lov xavfsiz SSL shifrlash orqali amalga oshishini tushuntiring. Shaxsiy karta raqamlarini aslo aytmang. 3. Sizda CHEKSIZ AI RASM YARATISH (Pollinations Flux HD/8K) imkoniyati mavjud. Foydalanuvchi rasm, surat, illyustratsiya so'rasa yoki 'rasm chiz', 'chizib ber' desa, hech qachon rad etmang! Boy inglizcha prompt tuzib `![Tavsif](https://image.pollinations.ai/p/{prompt}?width=1024&height=1024&seed={random_seed}&nologo=true&enhance=true&model=flux)` orqali ajoyib tasvirni taqdim eting. Rasmlar yaratish mutlaqo cheksizdir! 4. Foydalanuvchi biriktirgan PDF fayllar, rasmlar yoki hujjatlarni sinchkovlik bilan tahlil qiling, ularning mazmuni, bo'limlari, sanalari va matnlarini to'liq o'zbek tilida tushuntirib bering.";
     const combinedInstruction = systemInstruction ? `${defaultSystemInstruction}\n\n${systemInstruction}` : defaultSystemInstruction;
 
     const ai = getGeminiClient();
     let responseStream;
-    let attempts = 0;
-    const maxAttempts = 3;
-    while (attempts < maxAttempts) {
+    const candidateModels = [
+      "gemini-3.5-flash",
+      "gemini-3.1-flash-lite",
+      "gemini-3.5-flash-lite",
+      "gemini-flash-latest"
+    ];
+    let lastError: any = null;
+
+    for (const modelCandidate of candidateModels) {
       try {
-        responseStream = await ai.models.generateContentStream({
-          model: "gemini-3.6-flash",
+        console.log(`Connecting model: ${modelCandidate}...`);
+        
+        // Timeout race: do not allow a hanging model to block user request
+        const streamPromise = ai.models.generateContentStream({
+          model: modelCandidate,
           contents: formattedContents,
           config: {
             systemInstruction: combinedInstruction,
             tools: searchGroundingEnabled ? [{ googleSearch: {} }] : [],
           },
         });
-        break;
-      } catch (err: any) {
-        attempts++;
-        const errStatus = err?.status || err?.code || "";
-        const errStr = String(err?.message || err);
-        const isTransient = 
-          String(errStatus).includes("503") || 
-          errStr.includes("503") || 
-          errStr.includes("UNAVAILABLE") || 
-          errStr.toLowerCase().includes("high demand") || 
-          errStr.toLowerCase().includes("temporary") ||
-          errStr.toLowerCase().includes("fetch failed") ||
-          errStr.toLowerCase().includes("service unavailable");
-        
-        if (isTransient && attempts < maxAttempts) {
-          console.log(`Notice: Gemini service busy on attempt ${attempts}. Re-trying in 1.5s...`);
-          await new Promise((resolve) => setTimeout(resolve, 1500));
-        } else {
-          throw err;
+
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout: Model ${modelCandidate} didn't respond within 10s`)), 10000)
+        );
+
+        responseStream = (await Promise.race([streamPromise, timeoutPromise])) as any;
+        if (responseStream) {
+          console.log(`Successfully connected stream with: ${modelCandidate}`);
+          break;
         }
+      } catch (err: any) {
+        lastError = err;
+        console.log(`Notice: Model ${modelCandidate} unavailable (${err?.status || err?.message || err}). Trying next model...`);
       }
+    }
+
+    if (!responseStream && lastError) {
+      throw lastError;
     }
 
     for await (const chunk of responseStream) {
@@ -332,8 +391,9 @@ app.post("/api/chat", async (req, res) => {
       res.setHeader("X-Accel-Buffering", "no");
     }
 
-    const userPrompt = messages && messages.length > 0 
-      ? messages[messages.length - 1].text || "" 
+    const lastMsg = messages && messages.length > 0 ? messages[messages.length - 1] : null;
+    const userPrompt = lastMsg 
+      ? (lastMsg.attachmentName ? `[Fayl: ${lastMsg.attachmentName}] ${lastMsg.text || ""}` : (lastMsg.text || "Salom"))
       : "Salom";
 
     // Robust error signature detection
@@ -366,7 +426,7 @@ app.post("/api/chat", async (req, res) => {
       errStr.includes("quota") ||
       errStr.toLowerCase().includes("limit")
     ) {
-      systemNotice = `> ⚠️ **TIZIM ESLATMASI (KVOTA TUGAGAN)** \n> Bepul va umumiy shaxsiy bo'lmagan Gemini API kaliti kunlik kvotasi to'lgan (RESOURCE_EXHAUSTED 429). \n> To'xtovsiz va tezkor Gemini 3.6-Flash modelida chatni davom ettirish uchun: **Settings > Secrets** panelida o'z shaxsiy **GEMINI_API_KEY** kalitingizni kiriting. \n> *Hozirda sizga VeloxAi kognitiv falsafiy oflayn tizimi orqali ishonchli javob qaytarilmoqda:*\n\n---\n\n`;
+      systemNotice = `> ⚠️ **TIZIM ESLATMASI (KVOTA TUGAGAN)** \n> Bepul va umumiy shaxsiy bo'lmagan Gemini API kaliti kunlik kvotasi to'lgan (RESOURCE_EXHAUSTED 429). \n> To'xtovsiz va tezkor Gemini Flash modelida chatni davom ettirish uchun: **Settings > Secrets** panelida o'z shaxsiy **GEMINI_API_KEY** kalitingizni kiriting. \n> *Hozirda sizga VeloxAi kognitiv falsafiy oflayn tizimi orqali ishonchli javob qaytarilmoqda:*\n\n---\n\n`;
     } else if (
       errStr.includes("API_KEY_INVALID") || 
       errStr.includes("INVALID_ARGUMENT") || 

@@ -17,12 +17,16 @@ import {
   FileText,
   FileSpreadsheet,
   Paperclip,
-  Clock
+  Clock,
+  Palette
 } from "lucide-react";
 import Markdown from "react-markdown";
 import { ChatSession, Message } from "../types";
 import AIPresetSelector from "./AIPresetSelector";
 import ThreeDVideoStudio from "./ThreeDVideoStudio";
+import ImageStudioModal from "./ImageStudioModal";
+import ImageLightboxModal from "./ImageLightboxModal";
+import ChatImageCard from "./ChatImageCard";
 // @ts-ignore
 import logoImg from "../assets/images/velox_ai_logo_1781334265901.jpg";
 
@@ -69,6 +73,12 @@ export default function ChatWindow({
   const [attachedFileName, setAttachedFileName] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [isImageStudioOpen, setIsImageStudioOpen] = useState(false);
+  const [lightboxState, setLightboxState] = useState<{ isOpen: boolean; url: string; alt: string }>({
+    isOpen: false,
+    url: "",
+    alt: "",
+  });
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -165,24 +175,24 @@ export default function ChatWindow({
   // Preset quick starters
   const suggestions = [
     {
+      title: "🎨 Cheksiz Rasm Chizish",
+      prompt: "Kelajak Toshkent shahri 2050, neon chiroqlar, uchuvchi elektromobillar, giperrealistik 8K tasvirini chizib ber.",
+      emoji: "🎨"
+    },
+    {
       title: "Kod yozish",
       prompt: "React va Tailwind CSS'da animatsiyali chiroyli tugma (Button) komponentini yozib ber.",
       emoji: "💻"
     },
     {
+      title: "🌌 Kosmos va Fantastika",
+      prompt: "Qora tuynuk yaqinidagi sirli billur sayyora va kosmik kema tasvirini yuqori sifatda yaratib ber.",
+      emoji: "🌌"
+    },
+    {
       title: "Insho tuzish",
       prompt: "Sun'iy intellektning insoniyat kelajagiga ta'siri haqida o'zbek tilida insho yozib ber.",
       emoji: "✍️"
-    },
-    {
-      title: "Ingliz tilini o'rganish",
-      prompt: "Ingliz tilidagi eng ko'p ishlatiladigan 10 ta iborani ma'nolari va amaliy misollari bilan tushuntir.",
-      emoji: "🇬🇧"
-    },
-    {
-      title: "Maslahat",
-      prompt: "Dasturlash sohasida 2026-yilda eng kerakli va talabgor bo'ladigan texnologiyalarni sanab ber.",
-      emoji: "💡"
     }
   ];
 
@@ -453,30 +463,15 @@ export default function ChatWindow({
                                   </div>
                                 );
                               },
-                              img({ src, alt, ...props }) {
+                              img({ src, alt }) {
                                 return (
-                                  <div className="my-4 rounded-2xl overflow-hidden border border-[#2f2f2f] bg-[#171717]/80 shadow-2xl max-w-xl group relative">
-                                    <img
-                                      src={src || ""}
-                                      alt={alt || "Generatsiya qilingan rasm"}
-                                      className="w-full h-auto object-cover max-h-[500px]"
-                                      referrerPolicy="no-referrer"
-                                      {...props}
-                                    />
-                                    <div className="absolute bottom-0 left-0 right-0 bg-black/70 backdrop-blur-md px-4 py-3 text-xs text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-between">
-                                      <span className="font-medium truncate max-w-[70%]">{alt || "VeloxAi Tasvir"}</span>
-                                      <div className="flex gap-3">
-                                        <a
-                                          href={src || ""}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="text-sky-400 hover:text-sky-300 font-semibold transition-colors animate-pulse"
-                                        >
-                                          To'liq ochish
-                                        </a>
-                                      </div>
-                                    </div>
-                                  </div>
+                                  <ChatImageCard
+                                    src={src || ""}
+                                    alt={alt || "VeloxAi Tasvir"}
+                                    onOpenLightbox={(url, altText) => {
+                                      setLightboxState({ isOpen: true, url, alt: altText });
+                                    }}
+                                  />
                                 );
                               }
                             }}
@@ -570,129 +565,169 @@ export default function ChatWindow({
       )}
 
       {/* Input Message Form Console */}
-      <div className="p-6 shrink-0 bg-[#212121] border-t border-[#2f2f2f]/30">
-        {!isPremium && secondsLeft <= 0 ? (
-          <div className="max-w-3xl mx-auto bg-gradient-to-r from-amber-500/10 via-yellow-400/5 to-[#1c1c1c] border border-amber-500/20 rounded-2xl p-6 text-center space-y-4 shadow-xl relative overflow-hidden backdrop-blur-md animate-fade-in">
-            <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-amber-500 to-yellow-400" />
-            <div className="flex justify-center -mt-2">
-              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 animate-bounce">
-                <Clock className="h-6 w-6 stroke-[2]" />
-              </span>
-            </div>
-            <div className="space-y-1">
-              <h3 className="font-display text-base font-bold text-white">Bugungi 3 soatlik tekin foydalanish limitingiz tugadi!</h3>
-              <p className="text-xs text-[#b4b4b4] max-w-lg mx-auto leading-relaxed">
-                Premium tarif bilan cheksiz muloqot qiling. Atiga <strong>$3 / oyiga (39 000 UZS)</strong> evaziga barcha limitlarni abadiyga va cheksizga olib tashlang.
-              </p>
-            </div>
+      <div className="p-4 md:p-6 shrink-0 bg-[#212121] border-t border-[#2f2f2f]/30">
+        <form onSubmit={handleSend} className="max-w-3xl mx-auto relative">
+          {/* Quick Art & Features Bar */}
+          <div className="flex items-center gap-1.5 mb-2.5 overflow-x-auto pb-1 no-scrollbar">
             <button
               type="button"
-              onClick={onOpenPremium}
-              className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-600 hover:to-yellow-500 text-black font-bold text-xs shadow-lg shadow-yellow-500/10 transition-all transform hover:scale-[1.02] active:scale-97 select-none cursor-pointer inline-flex items-center gap-1.5"
+              onClick={() => setIsImageStudioOpen(true)}
+              className="px-3 py-1 rounded-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all shrink-0 cursor-pointer shadow-sm active:scale-95"
             >
-              <Sparkles className="h-3.5 w-3.5 fill-black/20" /> Premium Rejimga o'tish ($3)
+              <Palette className="h-3.5 w-3.5" />
+              <span>🎨 Cheksiz Rasm Chizish</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onSendMessage("🎨 [CHEKSIZ RASM YARATISH]: 'Kelajak Toshkent shahri 2050, neon chiroqlar, uchuvchi elektromobillar, 8K fotorealistik' mavzusida rasm chizib ber.")}
+              className="px-2.5 py-1 rounded-full bg-[#171717] hover:bg-[#252525] text-[#b4b4b4] hover:text-white border border-[#2f2f2f] text-xs transition-colors shrink-0 cursor-pointer"
+            >
+              📸 Kelajak Toshkent 8K
+            </button>
+            <button
+              type="button"
+              onClick={() => onSendMessage("🎨 [CHEKSIZ RASM YARATISH]: 'Qora tuynuk yaqinidagi billur sayyora va kosmik kema, kiberpank sci-fi' mavzusida rasm chizib ber.")}
+              className="px-2.5 py-1 rounded-full bg-[#171717] hover:bg-[#252525] text-[#b4b4b4] hover:text-white border border-[#2f2f2f] text-xs transition-colors shrink-0 cursor-pointer"
+            >
+              🌌 Kiberpank Fazoviy
+            </button>
+            <button
+              type="button"
+              onClick={() => onSendMessage("🎨 [CHEKSIZ RASM YARATISH]: 'Oq tulpor tog'lar cho'qqisida quyosh botishi paytida, moybo'yoq asari' mavzusida rasm chizib ber.")}
+              className="px-2.5 py-1 rounded-full bg-[#171717] hover:bg-[#252525] text-[#b4b4b4] hover:text-white border border-[#2f2f2f] text-xs transition-colors shrink-0 cursor-pointer"
+            >
+              ✨ Moybo&apos;yoq Tulpor
             </button>
           </div>
-        ) : (
-          <form onSubmit={handleSend} className="max-w-3xl mx-auto relative">
-            
-            {/* Attachment preview if any */}
-            {attachedFile && (
-              <div className="absolute -top-16 left-2 flex items-center gap-2.5 p-1.5 bg-[#171717] border border-[#2f2f2f] rounded-xl shadow-2xl text-xs z-10 animate-fade-in animate-duration-200">
-                {attachedFile.startsWith("data:image/") ? (
-                  <img
-                    src={attachedFile}
-                    alt="thumbnail attached"
-                    className="w-10 h-10 object-cover rounded-lg border border-[#2f2f2f]"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <div className="w-10 h-10 rounded-lg bg-[#252525] border border-[#2f2f2f] flex items-center justify-center shrink-0">
-                    {getFileIcon(attachedFile.split(";")[0].replace("data:", ""), attachedFileName || "fayl")}
-                  </div>
-                )}
-                <div className="flex flex-col max-w-[12rem] pr-1">
-                  <span className="text-[11px] font-semibold text-white truncate max-w-[10rem]">{attachedFileName || "Hujjat biriktirildi"}</span>
-                  <span className="text-[9px] text-[#8a8a8a] uppercase font-mono">{attachedFile.split(";")[0].replace("data:", "").split("/")[1]?.substring(0, 8) || "fayl"}</span>
+          
+          {/* Attachment preview if any */}
+          {attachedFile && (
+            <div className="absolute -top-16 left-2 flex items-center gap-2.5 p-1.5 bg-[#171717] border border-[#2f2f2f] rounded-xl shadow-2xl text-xs z-10 animate-fade-in animate-duration-200">
+              {attachedFile.startsWith("data:image/") ? (
+                <img
+                  src={attachedFile}
+                  alt="thumbnail attached"
+                  className="w-10 h-10 object-cover rounded-lg border border-[#2f2f2f]"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-lg bg-[#252525] border border-[#2f2f2f] flex items-center justify-center shrink-0">
+                  {getFileIcon(attachedFile.split(";")[0].replace("data:", ""), attachedFileName || "fayl")}
                 </div>
-                <button
-                  type="button"
-                  onClick={removeAttachedFile}
-                  className="p-1 rounded-full bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white cursor-pointer ml-1 shrink-0 transition-colors"
-                  title="Faylni o'chirish"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
+              )}
+              <div className="flex flex-col max-w-[12rem] pr-1">
+                <span className="text-[11px] font-semibold text-white truncate max-w-[10rem]">{attachedFileName || "Hujjat biriktirildi"}</span>
+                <span className="text-[9px] text-[#8a8a8a] uppercase font-mono">{attachedFile.split(";")[0].replace("data:", "").split("/")[1]?.substring(0, 8) || "fayl"}</span>
               </div>
-            )}
-
-            {/* Core Input box wrapper */}
-            <div className="relative flex items-center rounded-2xl bg-[#2f2f2f] border border-[#3e3e3e] focus-within:border-[#676767] shadow-2xl transition-all">
-              
-              {/* Attachment paperclip and image selection */}
               <button
                 type="button"
-                onClick={triggerFileSelection}
-                className={`p-3 text-[#676767] hover:text-white hover:bg-[#212121]/50 rounded-l-2xl transition-colors cursor-pointer ${
-                  attachedFile ? "text-white" : ""
-                }`}
-                title="Rasm yoki fayl yuklash"
+                onClick={removeAttachedFile}
+                className="p-1 rounded-full bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white cursor-pointer ml-1 shrink-0 transition-colors"
+                title="Faylni o'chirish"
               >
-                <Paperclip className="h-5 w-5" />
+                <X className="h-3.5 w-3.5" />
               </button>
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileUpload}
-                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.json,.xml,.js,.ts,.py,.rs,.cpp,.html,.css"
-                className="hidden"
-              />
-
-              {/* Input field */}
-              <textarea
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder={
-                  session.messages.length === 0 
-                    ? "Suhbatni boshlash va fayllarni tahlil qilish uchun yozing..." 
-                    : "Menga o'xshab istalgan narsani so'rang yoki fayl yuklang..."
-                }
-                rows={1}
-                className="w-full bg-transparent text-sm py-4 px-2 pr-16 max-h-36 resize-none overflow-y-auto focus:outline-none text-[#ececec] placeholder-[#676767] font-sans"
-                style={{ minHeight: "24px" }}
-              />
-
-              {/* Send button interaction */}
-              <div className="absolute right-3 bottom-2.5 flex items-center gap-1.5 shrink-0">
-                {session.searchGroundingEnabled && (
-                  <span className="flex items-center gap-1 text-[9px] bg-[#171717] text-[#ececec] font-semibold px-2 py-1 rounded border border-[#2f2f2f]">
-                    <Globe className="h-3 w-3 animate-pulse" />
-                    Qidirish
-                  </span>
-                )}
-                
-                <button
-                  type="submit"
-                  disabled={(!inputText.trim() && !attachedFile) || isGenerating}
-                  className={`p-2 rounded-xl transition-all ${
-                    (inputText.trim() || attachedFile) && !isGenerating
-                      ? "bg-white text-black hover:bg-gray-200 cursor-pointer"
-                      : "bg-[#212121] text-[#676767] pointer-events-none"
-                  }`}
-                >
-                  <Send className="h-4 w-4" />
-                </button>
-              </div>
             </div>
+          )}
+
+          {/* Core Input box wrapper */}
+          <div className="relative flex items-center rounded-2xl bg-[#2f2f2f] border border-[#3e3e3e] focus-within:border-[#676767] shadow-2xl transition-all">
             
-            {/* Subtext info panel */}
-            <div className="text-center mt-3">
-              <p className="text-[10px] text-[#676767]">VeloxAi xatolar qilishi mumkin. Muhim faktlarni tekshirib oling.</p>
+            {/* Attachment paperclip and image selection */}
+            <button
+              type="button"
+              onClick={triggerFileSelection}
+              className={`p-3 text-[#676767] hover:text-white hover:bg-[#212121]/50 rounded-l-2xl transition-colors cursor-pointer ${
+                attachedFile ? "text-white" : ""
+              }`}
+              title="Rasm yoki fayl yuklash"
+            >
+              <Paperclip className="h-5 w-5" />
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.json,.xml,.js,.ts,.py,.rs,.cpp,.html,.css"
+              className="hidden"
+            />
+
+            {/* Dedicated Cheksiz AI Rasm Studiyasi trigger button */}
+            <button
+              type="button"
+              onClick={() => setIsImageStudioOpen(true)}
+              className="p-3 text-amber-400/80 hover:text-amber-300 hover:bg-[#212121]/50 transition-colors cursor-pointer flex items-center gap-1 group"
+              title="🎨 Cheksiz AI Rasm Yaratish Studiyasi"
+            >
+              <Palette className="h-5 w-5 group-hover:scale-110 transition-transform" />
+            </button>
+
+            {/* Input field */}
+            <textarea
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                session.messages.length === 0 
+                  ? "Suhbatni boshlash, rasm chizish yoki fayllarni tahlil qilish uchun yozing..." 
+                  : "Menga o'xshab istalgan narsani so'rang, '... rasmini chiz' deng yoki fayl yuklang..."
+              }
+              rows={1}
+              className="w-full bg-transparent text-sm py-4 px-2 pr-16 max-h-36 resize-none overflow-y-auto focus:outline-none text-[#ececec] placeholder-[#676767] font-sans"
+              style={{ minHeight: "24px" }}
+            />
+
+            {/* Send button interaction */}
+            <div className="absolute right-3 bottom-2.5 flex items-center gap-1.5 shrink-0">
+              {session.searchGroundingEnabled && (
+                <span className="flex items-center gap-1 text-[9px] bg-[#171717] text-[#ececec] font-semibold px-2 py-1 rounded border border-[#2f2f2f]">
+                  <Globe className="h-3 w-3 animate-pulse" />
+                  Qidirish
+                </span>
+              )}
+              
+              <button
+                type="submit"
+                disabled={(!inputText.trim() && !attachedFile) || isGenerating}
+                className={`p-2 rounded-xl transition-all ${
+                  (inputText.trim() || attachedFile) && !isGenerating
+                    ? "bg-white text-black hover:bg-gray-200 cursor-pointer"
+                    : "bg-[#212121] text-[#676767] pointer-events-none"
+                }`}
+              >
+                <Send className="h-4 w-4" />
+              </button>
             </div>
-          </form>
-        )}
+          </div>
+          
+          {/* Subtext info panel */}
+          <div className="text-center mt-3 flex items-center justify-center gap-3 text-[10px] text-[#676767]">
+            <span className="text-emerald-400/90 font-medium flex items-center gap-1">
+              <Sparkles className="h-3 w-3 text-emerald-400" />
+              Cheksiz AI Rasm &amp; Chat
+            </span>
+            <span>•</span>
+            <span>VeloxAi xatolar qilishi mumkin. Muhim faktlarni tekshirib oling.</span>
+          </div>
+        </form>
       </div>
+
+      {/* Cheksiz AI Rasm Studiyasi Modal */}
+      <ImageStudioModal
+        isOpen={isImageStudioOpen}
+        onClose={() => setIsImageStudioOpen(false)}
+        onSubmit={(prompt) => {
+          onSendMessage(prompt);
+        }}
+      />
+
+      {/* Lightbox Modal */}
+      <ImageLightboxModal
+        isOpen={lightboxState.isOpen}
+        onClose={() => setLightboxState({ isOpen: false, url: "", alt: "" })}
+        imageUrl={lightboxState.url}
+        altText={lightboxState.alt}
+      />
     </div>
   );
 }
